@@ -465,50 +465,16 @@ def weather_description(code):
 # KIỂM TRA CÓ MƯA HAY KHÔNG
 # ============================================================
 
-def check_rain(weather_code, rain):
+def check_rain(rain):
 
     """
     Xác định trời mưa dựa trên:
 
-    1. Lượng mưa > 0
-
-    HOẶC
-
-    2. Weather Code thuộc nhóm mưa.
+    Lượng mưa > 0 thì coi là có mưa.
     """
 
     # Nếu lượng mưa lớn hơn 0 mm
     if rain is not None and rain > 0:
-
-        return True
-
-
-    # Các mã thời tiết có mưa
-    rain_codes = {
-
-        51,
-        53,
-        55,
-        56,
-        57,
-
-        61,
-        63,
-        65,
-        66,
-        67,
-
-        80,
-        81,
-        82,
-
-        95,
-        96,
-        99
-    }
-
-
-    if weather_code in rain_codes:
 
         return True
 
@@ -698,9 +664,6 @@ def get_weather(location):
         # ----------------------------------------------------
 
         is_raining = check_rain(
-
-            weather_code,
-
             rain
         )
 
