@@ -1,51 +1,265 @@
 import time
-import threading
 import requests
-import RPi.GPIO as GPIO
-
-from gpiozero import Motor
+from gpiozero import LED, Motor
 from gpiozero.pins.lgpio import LGPIOFactory
 
 
 # ============================================================
-# API OPEN-METEO
+# CẤU HÌNH API
 # ============================================================
 
 WEATHER_URL = "https://api.open-meteo.com/v1/forecast"
+
 AIR_URL = "https://air-quality-api.open-meteo.com/v1/air-quality"
-GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search"
 
 
 # ============================================================
 # CẤU HÌNH GPIO
 # ============================================================
 
-# L298N
+# ---------------- MOTOR DC - L298N ----------------
 MOTOR_EN = 18
 MOTOR_IN1 = 23
 MOTOR_IN2 = 24
 
-# Relay điều khiển đèn
-LIGHT_PIN = 25
+# ---------------- ĐÈN ----------------
+LED_PIN = 22
 
-# Tốc độ motor
-MOTOR_SPEED = 60
 
-# Thời gian cập nhật tự động
-UPDATE_INTERVAL = 300
+# ============================================================
+# NGƯỠNG ĐIỀU KHIỂN
+# ============================================================
+
+# Nếu nhiệt độ > 30 độ C:
+#     Motor quay thuận
+#
+# Nếu nhiệt độ <= 30 độ C:
+#     Motor dừng
+
+TEMPERATURE_LIMIT = 30.0
+
+
+# ============================================================
+# THỜI GIAN CẬP NHẬT
+# ============================================================
+
+UPDATE_INTERVAL = 60       # cập nhật mỗi 60 giây
+
+
+# ============================================================
+# TỌA ĐỘ CÁC THÀNH PHỐ
+#
+# Không cần gọi Geocoding API đối với các thành phố này.
+# ============================================================
+
+CITY_COORDS = {
+
+    # --------------------------------------------------------
+    # ĐÀ NẴNG
+    # --------------------------------------------------------
+
+    "da nang": {
+        "name": "Đà Nẵng",
+        "latitude": 16.0544,
+        "longitude": 108.2022
+    },
+
+    "danang": {
+        "name": "Đà Nẵng",
+        "latitude": 16.0544,
+        "longitude": 108.2022
+    },
+
+    "đà nẵng": {
+        "name": "Đà Nẵng",
+        "latitude": 16.0544,
+        "longitude": 108.2022
+    },
+
+
+    # --------------------------------------------------------
+    # HÀ NỘI
+    # --------------------------------------------------------
+
+    "ha noi": {
+        "name": "Hà Nội",
+        "latitude": 21.0285,
+        "longitude": 105.8542
+    },
+
+    "hanoi": {
+        "name": "Hà Nội",
+        "latitude": 21.0285,
+        "longitude": 105.8542
+    },
+
+    "hà nội": {
+        "name": "Hà Nội",
+        "latitude": 21.0285,
+        "longitude": 105.8542
+    },
+
+
+    # --------------------------------------------------------
+    # TP HỒ CHÍ MINH
+    # --------------------------------------------------------
+
+    "ho chi minh": {
+        "name": "TP. Hồ Chí Minh",
+        "latitude": 10.8231,
+        "longitude": 106.6297
+    },
+
+    "ho chi minh city": {
+        "name": "TP. Hồ Chí Minh",
+        "latitude": 10.8231,
+        "longitude": 106.6297
+    },
+
+    "hồ chí minh": {
+        "name": "TP. Hồ Chí Minh",
+        "latitude": 10.8231,
+        "longitude": 106.6297
+    },
+
+    "tphcm": {
+        "name": "TP. Hồ Chí Minh",
+        "latitude": 10.8231,
+        "longitude": 106.6297
+    },
+
+    "sai gon": {
+        "name": "TP. Hồ Chí Minh",
+        "latitude": 10.8231,
+        "longitude": 106.6297
+    },
+
+    "sài gòn": {
+        "name": "TP. Hồ Chí Minh",
+        "latitude": 10.8231,
+        "longitude": 106.6297
+    },
+
+
+    # --------------------------------------------------------
+    # CẦN THƠ
+    # --------------------------------------------------------
+
+    "can tho": {
+        "name": "Cần Thơ",
+        "latitude": 10.0452,
+        "longitude": 105.7469
+    },
+
+    "cần thơ": {
+        "name": "Cần Thơ",
+        "latitude": 10.0452,
+        "longitude": 105.7469
+    },
+
+
+    # --------------------------------------------------------
+    # HẢI PHÒNG
+    # --------------------------------------------------------
+
+    "hai phong": {
+        "name": "Hải Phòng",
+        "latitude": 20.8449,
+        "longitude": 106.6881
+    },
+
+    "hải phòng": {
+        "name": "Hải Phòng",
+        "latitude": 20.8449,
+        "longitude": 106.6881
+    },
+
+
+    # --------------------------------------------------------
+    # HUẾ
+    # --------------------------------------------------------
+
+    "hue": {
+        "name": "Huế",
+        "latitude": 16.4637,
+        "longitude": 107.5909
+    },
+
+    "huế": {
+        "name": "Huế",
+        "latitude": 16.4637,
+        "longitude": 107.5909
+    },
+
+
+    # --------------------------------------------------------
+    # NHA TRANG
+    # --------------------------------------------------------
+
+    "nha trang": {
+        "name": "Nha Trang",
+        "latitude": 12.2388,
+        "longitude": 109.1967
+    },
+
+
+    # --------------------------------------------------------
+    # ĐÀ LẠT
+    # --------------------------------------------------------
+
+    "da lat": {
+        "name": "Đà Lạt",
+        "latitude": 11.9404,
+        "longitude": 108.4583
+    },
+
+    "đà lạt": {
+        "name": "Đà Lạt",
+        "latitude": 11.9404,
+        "longitude": 108.4583
+    },
+
+
+    # --------------------------------------------------------
+    # VŨNG TÀU
+    # --------------------------------------------------------
+
+    "vung tau": {
+        "name": "Vũng Tàu",
+        "latitude": 10.4114,
+        "longitude": 107.1362
+    },
+
+    "vũng tàu": {
+        "name": "Vũng Tàu",
+        "latitude": 10.4114,
+        "longitude": 107.1362
+    }
+}
 
 
 # ============================================================
 # KHỞI TẠO GPIO
 # ============================================================
 
-GPIO.setmode(GPIO.BCM)
+print("==============================================")
+print("        KHỞI TẠO PHẦN CỨNG")
+print("==============================================")
 
-GPIO.setup(
-    LIGHT_PIN,
-    GPIO.OUT,
-    initial=GPIO.LOW
-)
+
+try:
+
+    factory = LGPIOFactory()
+
+    print("✅ LGPIOFactory: OK")
+
+except Exception as e:
+
+    print("❌ Không thể khởi tạo LGPIOFactory")
+
+    print(e)
+
+    factory = None
 
 
 # ============================================================
@@ -56,8 +270,6 @@ motor = None
 
 try:
 
-    factory = LGPIOFactory()
-
     motor = Motor(
         forward=MOTOR_IN1,
         backward=MOTOR_IN2,
@@ -66,127 +278,223 @@ try:
         pin_factory=factory
     )
 
-    print("-> [OK] Khởi tạo Motor DC thành công.")
+    print(
+        f"✅ Motor DC: OK "
+        f"(ENA={MOTOR_EN}, "
+        f"IN1={MOTOR_IN1}, "
+        f"IN2={MOTOR_IN2})"
+    )
 
 except Exception as e:
 
-    print(
-        f"-> [LOI] Không thể khởi tạo Motor: {e}"
+    print("❌ Lỗi khởi tạo Motor:")
+
+    print(e)
+
+
+# ============================================================
+# KHỞI TẠO LED
+# ============================================================
+
+led = None
+
+try:
+
+    led = LED(
+        LED_PIN,
+        pin_factory=factory
     )
 
+    led.off()
+
+    print(
+        f"✅ LED: OK (GPIO {LED_PIN})"
+    )
+
+except Exception as e:
+
+    print("❌ Lỗi khởi tạo LED:")
+
+    print(e)
+
 
 # ============================================================
-# TRẠNG THÁI
+# TRẠNG THÁI HỆ THỐNG
 # ============================================================
 
-state = {
+system_state = {
 
     "city": "",
 
-    "latitude": None,
-    "longitude": None,
+    "latitude": 0.0,
 
-    "temperature": None,
+    "longitude": 0.0,
 
-    "weather_code": None,
+    "temperature": 0.0,
+
+    "rain": 0.0,
+
+    "weather_code": -1,
+
     "weather_description": "",
-
-    "rain_mm": 0.0,
-    "precipitation_mm": 0.0,
 
     "is_raining": False,
 
+    "pm25": None,
+
     "pm10": None,
-    "pm2_5": None,
 
     "us_aqi": None,
 
-    "light": False,
-    "motor": False
-}
+    "led_on": False,
 
-lock = threading.Lock()
+    "motor_on": False,
+
+    "motor_direction": "STOP",
+
+    "last_update": ""
+}
 
 
 # ============================================================
-# WEATHER CODE → MÔ TẢ
+# CHUYỂN WEATHER CODE THÀNH MÔ TẢ
 # ============================================================
 
 def weather_description(code):
+
+    """
+    Open-Meteo sử dụng WMO Weather Code.
+
+    Một số mã quan trọng:
+
+    0       = Trời quang
+    1-3     = Có mây
+    45-48   = Sương mù
+    51-57   = Mưa phùn
+    61-67   = Mưa
+    71-77   = Tuyết
+    80-82   = Mưa rào
+    85-86   = Tuyết rào
+    95      = Dông
+    96-99   = Dông có mưa đá
+    """
 
     descriptions = {
 
         0: "Trời quang",
 
         1: "Chủ yếu quang",
-        2: "Mây rải rác",
+
+        2: "Có mây",
+
         3: "Nhiều mây",
 
         45: "Sương mù",
+
         48: "Sương mù đóng băng",
 
         51: "Mưa phùn nhẹ",
+
         53: "Mưa phùn vừa",
+
         55: "Mưa phùn mạnh",
 
-        56: "Mưa phùn lạnh nhẹ",
-        57: "Mưa phùn lạnh mạnh",
+        56: "Mưa phùn đóng băng nhẹ",
+
+        57: "Mưa phùn đóng băng mạnh",
 
         61: "Mưa nhẹ",
-        63: "Mưa vừa",
-        65: "Mưa to",
 
-        66: "Mưa lạnh nhẹ",
-        67: "Mưa lạnh mạnh",
+        63: "Mưa vừa",
+
+        65: "Mưa lớn",
+
+        66: "Mưa đóng băng nhẹ",
+
+        67: "Mưa đóng băng mạnh",
 
         71: "Tuyết nhẹ",
+
         73: "Tuyết vừa",
-        75: "Tuyết to",
+
+        75: "Tuyết lớn",
 
         77: "Hạt tuyết",
 
         80: "Mưa rào nhẹ",
+
         81: "Mưa rào vừa",
+
         82: "Mưa rào mạnh",
 
-        85: "Mưa tuyết nhẹ",
-        86: "Mưa tuyết mạnh",
+        85: "Tuyết rào nhẹ",
+
+        86: "Tuyết rào mạnh",
 
         95: "Dông",
 
-        96: "Dông có mưa đá",
+        96: "Dông có mưa đá nhẹ",
+
         99: "Dông có mưa đá mạnh"
     }
 
     return descriptions.get(
-        int(code),
+        code,
         "Không xác định"
     )
 
 
 # ============================================================
-# KIỂM TRA WEATHER CODE CÓ PHẢI MƯA
+# KIỂM TRA CÓ MƯA HAY KHÔNG
 # ============================================================
 
-def check_rain(weather_code, rain_mm):
+def check_rain(weather_code, rain):
 
-    code = int(weather_code)
+    """
+    Xác định trời mưa dựa trên:
 
-    # Các mã WMO liên quan đến mưa/dông
-    rain_codes = (
+    1. Lượng mưa > 0
 
-        list(range(51, 68))
+    HOẶC
 
-        + list(range(80, 83))
+    2. Weather Code thuộc nhóm mưa.
+    """
 
-        + list(range(95, 100))
-    )
+    # Nếu lượng mưa lớn hơn 0 mm
+    if rain is not None and rain > 0:
 
-    if code in rain_codes:
         return True
 
-    if rain_mm > 0:
+
+    # Các mã thời tiết có mưa
+    rain_codes = {
+
+        51,
+        53,
+        55,
+        56,
+        57,
+
+        61,
+        63,
+        65,
+        66,
+        67,
+
+        80,
+        81,
+        82,
+
+        95,
+        96,
+        99
+    }
+
+
+    if weather_code in rain_codes:
+
         return True
+
 
     return False
 
@@ -197,204 +505,91 @@ def check_rain(weather_code, rain_mm):
 
 def find_city(city):
 
-    params = {
+    city_key = city.strip().lower()
 
-        "name": city,
-
-        "count": 10,
-
-        "language": "vi",
-
-        "format": "json",
-
-        # Chỉ tìm Việt Nam
-        "countryCode": "VN"
-    }
-
-    try:
-
-        print()
-        print(
-            f"🔎 Đang tìm thành phố: {city}"
-        )
-
-        response = requests.get(
-
-            GEOCODING_URL,
-
-            params=params,
-
-            timeout=10
-        )
-
-        response.raise_for_status()
-
-        data = response.json()
-
-        results = data.get(
-            "results",
-            []
-        )
-
-        if not results:
-
-            print(
-                "❌ Không tìm thấy thành phố."
-            )
-
-            return None
-
-
-        # ====================================================
-        # NẾU CÓ NHIỀU KẾT QUẢ
-        # ====================================================
-
-        if len(results) > 1:
-
-            print()
-            print(
-                "Các địa điểm tìm được:"
-            )
-
-            for i, item in enumerate(
-                results[:10],
-                start=1
-            ):
-
-                name = item.get(
-                    "name",
-                    ""
-                )
-
-                admin1 = item.get(
-                    "admin1",
-                    ""
-                )
-
-                country = item.get(
-                    "country",
-                    ""
-                )
-
-                print(
-                    f"{i}. {name}, "
-                    f"{admin1}, "
-                    f"{country}"
-                )
-
-
-            while True:
-
-                try:
-
-                    choice = int(
-                        input(
-                            "👉 Chọn địa điểm: "
-                        )
-                    )
-
-                    if 1 <= choice <= min(
-                        10,
-                        len(results)
-                    ):
-
-                        location = results[
-                            choice - 1
-                        ]
-
-                        break
-
-                except ValueError:
-                    pass
-
-                print(
-                    "⚠️ Lựa chọn không hợp lệ."
-                )
-
-        else:
-
-            location = results[0]
-
-
-        latitude = location[
-            "latitude"
-        ]
-
-        longitude = location[
-            "longitude"
-        ]
-
-        name = location.get(
-            "name",
-            city
-        )
-
-        country = location.get(
-            "country",
-            ""
-        )
-
-        admin1 = location.get(
-            "admin1",
-            ""
-        )
-
-
-        print()
-        print(
-            "✅ Đã xác định thành phố:"
-        )
-
-        print(
-            f"   Thành phố : {name}"
-        )
-
-        print(
-            f"   Tỉnh      : {admin1}"
-        )
-
-        print(
-            f"   Quốc gia  : {country}"
-        )
-
-        print(
-            f"   Latitude  : {latitude}"
-        )
-
-        print(
-            f"   Longitude : {longitude}"
-        )
-
-
-        return {
-
-            "name": name,
-
-            "country": country,
-
-            "admin1": admin1,
-
-            "latitude": latitude,
-
-            "longitude": longitude
-        }
-
-
-    except Exception as e:
-
-        print(
-            f"❌ Lỗi tìm thành phố: {e}"
-        )
+    if city_key == "":
 
         return None
 
 
+    # --------------------------------------------------------
+    # Tìm trong danh sách thành phố
+    # --------------------------------------------------------
+
+    if city_key in CITY_COORDS:
+
+        location = CITY_COORDS[city_key]
+
+        print()
+
+        print("✅ Đã tìm thấy thành phố.")
+
+        print(
+            f"   Thành phố : "
+            f"{location['name']}"
+        )
+
+        print(
+            f"   Latitude  : "
+            f"{location['latitude']}"
+        )
+
+        print(
+            f"   Longitude : "
+            f"{location['longitude']}"
+        )
+
+        return location
+
+
+    # --------------------------------------------------------
+    # Không tìm thấy
+    # --------------------------------------------------------
+
+    print()
+
+    print(
+        f"❌ Chưa có tọa độ cho "
+        f"'{city}'."
+    )
+
+    print()
+
+    print(
+        "Các thành phố đang hỗ trợ:"
+    )
+
+    supported = set()
+
+    for value in CITY_COORDS.values():
+
+        supported.add(
+            value["name"]
+        )
+
+    for name in sorted(supported):
+
+        print(
+            f"   - {name}"
+        )
+
+    return None
+
+
 # ============================================================
 # LẤY THỜI TIẾT
-# SỬ DỤNG WEATHER_URL
 # ============================================================
 
-def get_weather(latitude, longitude):
+def get_weather(location):
+
+    latitude = location["latitude"]
+
+    longitude = location["longitude"]
+
+
+    # --------------------------------------------------------
+    # Tham số gửi cho Open-Meteo
+    # --------------------------------------------------------
 
     params = {
 
@@ -404,13 +599,22 @@ def get_weather(latitude, longitude):
 
         "current": (
             "temperature_2m,"
-            "weather_code,"
             "rain,"
-            "precipitation"
+            "precipitation,"
+            "weather_code"
         ),
 
-        "timezone": "auto"
+        "timezone": "Asia/Ho_Chi_Minh"
     }
+
+
+    print()
+
+    print("🌐 Đang lấy dữ liệu thời tiết...")
+
+    print(
+        f"   URL: {WEATHER_URL}"
+    )
 
 
     try:
@@ -421,85 +625,146 @@ def get_weather(latitude, longitude):
 
             params=params,
 
-            timeout=10
+            timeout=15
         )
+
 
         response.raise_for_status()
 
+
         data = response.json()
 
+
+        # ----------------------------------------------------
+        # Lấy phần current
+        # ----------------------------------------------------
+
         current = data.get(
-            "current"
+            "current",
+            {}
         )
 
-        if not current:
+
+        temperature = current.get(
+            "temperature_2m"
+        )
+
+
+        rain = current.get(
+            "rain",
+            0
+        )
+
+
+        precipitation = current.get(
+            "precipitation",
+            0
+        )
+
+
+        weather_code = current.get(
+            "weather_code"
+        )
+
+
+        if temperature is None:
 
             print(
-                "❌ Không có dữ liệu thời tiết."
+                "❌ API không trả về nhiệt độ."
             )
 
             return None
 
 
-        temperature = float(
-            current[
-                "temperature_2m"
-            ]
-        )
+        # ----------------------------------------------------
+        # Kiểm tra mưa
+        # ----------------------------------------------------
 
-        weather_code = int(
-            current[
-                "weather_code"
-            ]
-        )
-
-        rain_mm = float(
-            current.get(
-                "rain",
-                0
-            )
-        )
-
-        precipitation_mm = float(
-            current.get(
-                "precipitation",
-                0
-            )
-        )
-
-
-        raining = check_rain(
+        is_raining = check_rain(
 
             weather_code,
 
-            rain_mm
+            rain
         )
 
 
-        return {
+        result = {
 
-            "temperature": temperature,
+            "temperature":
+                float(temperature),
 
-            "weather_code": weather_code,
+            "rain":
+                float(rain or 0),
+
+            "precipitation":
+                float(precipitation or 0),
+
+            "weather_code":
+                weather_code,
 
             "description":
                 weather_description(
                     weather_code
                 ),
 
-            "rain_mm": rain_mm,
-
-            "precipitation_mm":
-                precipitation_mm,
-
-            "is_raining": raining
+            "is_raining":
+                is_raining
         }
+
+
+        print(
+            "✅ Lấy thời tiết thành công."
+        )
+
+
+        return result
+
+
+    except requests.exceptions.Timeout:
+
+        print()
+
+        print(
+            "❌ API thời tiết bị TIMEOUT."
+        )
+
+        print(
+            "   Kiểm tra kết nối Internet "
+            "của Raspberry Pi."
+        )
+
+        return None
+
+
+    except requests.exceptions.ConnectionError:
+
+        print()
+
+        print(
+            "❌ Không thể kết nối tới "
+            "Open-Meteo."
+        )
+
+        return None
+
+
+    except requests.exceptions.HTTPError as e:
+
+        print()
+
+        print(
+            f"❌ HTTP Error: {e}"
+        )
+
+        return None
 
 
     except Exception as e:
 
+        print()
+
         print(
-            f"❌ Lỗi WEATHER API: {e}"
+            f"❌ Lỗi lấy thời tiết: {e}"
         )
 
         return None
@@ -507,10 +772,14 @@ def get_weather(latitude, longitude):
 
 # ============================================================
 # LẤY CHẤT LƯỢNG KHÔNG KHÍ
-# SỬ DỤNG AIR_URL
 # ============================================================
 
-def get_air_quality(latitude, longitude):
+def get_air_quality(location):
+
+    latitude = location["latitude"]
+
+    longitude = location["longitude"]
+
 
     params = {
 
@@ -524,8 +793,15 @@ def get_air_quality(latitude, longitude):
             "us_aqi"
         ),
 
-        "timezone": "auto"
+        "timezone": "Asia/Ho_Chi_Minh"
     }
+
+
+    print()
+
+    print(
+        "🌐 Đang lấy dữ liệu chất lượng không khí..."
+    )
 
 
     try:
@@ -536,99 +812,125 @@ def get_air_quality(latitude, longitude):
 
             params=params,
 
-            timeout=10
+            timeout=15
         )
+
 
         response.raise_for_status()
 
+
         data = response.json()
 
+
         current = data.get(
-            "current"
+            "current",
+            {}
         )
 
-        if not current:
 
-            print(
-                "❌ Không có dữ liệu chất lượng không khí."
-            )
-
-            return None
+        pm25 = current.get(
+            "pm2_5"
+        )
 
 
         pm10 = current.get(
             "pm10"
         )
 
-        pm2_5 = current.get(
-            "pm2_5"
-        )
 
         us_aqi = current.get(
             "us_aqi"
         )
 
 
+        print(
+            "✅ Lấy dữ liệu không khí thành công."
+        )
+
+
         return {
+
+            "pm25": pm25,
 
             "pm10": pm10,
 
-            "pm2_5": pm2_5,
-
             "us_aqi": us_aqi
+        }
+
+
+    except requests.exceptions.Timeout:
+
+        print(
+            "⚠️ API không khí bị timeout."
+        )
+
+        return {
+
+            "pm25": None,
+
+            "pm10": None,
+
+            "us_aqi": None
         }
 
 
     except Exception as e:
 
         print(
-            f"❌ Lỗi AIR QUALITY API: {e}"
+            f"⚠️ Không lấy được dữ liệu "
+            f"không khí: {e}"
         )
 
-        return None
+        return {
+
+            "pm25": None,
+
+            "pm10": None,
+
+            "us_aqi": None
+        }
 
 
 # ============================================================
-# ĐIỀU KHIỂN ĐÈN
+# ĐIỀU KHIỂN LED
 # ============================================================
 
-def control_light(is_raining):
+def control_led(is_raining):
+
+    if led is None:
+
+        return
+
 
     try:
 
         if is_raining:
 
-            GPIO.output(
-                LIGHT_PIN,
-                GPIO.HIGH
-            )
+            led.on()
 
-            with lock:
-                state["light"] = True
+            system_state["led_on"] = True
 
             print(
-                "💡 ĐÈN: BẬT"
+                "💡 ĐÈN: BẬT "
+                "(TRỜI ĐANG MƯA)"
             )
 
         else:
 
-            GPIO.output(
-                LIGHT_PIN,
-                GPIO.LOW
-            )
+            led.off()
 
-            with lock:
-                state["light"] = False
+            system_state["led_on"] = False
 
             print(
-                "💡 ĐÈN: TẮT"
+                "💡 ĐÈN: TẮT "
+                "(KHÔNG MƯA)"
             )
 
 
     except Exception as e:
 
         print(
-            f"❌ Lỗi điều khiển đèn: {e}"
+            f"❌ Lỗi điều khiển LED: {e}"
         )
 
 
@@ -645,522 +947,388 @@ def control_motor(temperature):
 
     try:
 
-        # ====================================================
+        # ----------------------------------------------------
         # NHIỆT ĐỘ > 30°C
-        # ====================================================
+        # ----------------------------------------------------
 
-        if temperature > 30:
+        if temperature > TEMPERATURE_LIMIT:
 
-            speed = (
-                MOTOR_SPEED / 100
-            )
-
+            # Motor quay thuận
             motor.forward(
-                speed
+                0.6
             )
 
-            with lock:
-                state["motor"] = True
+            system_state["motor_on"] = True
+
+            system_state[
+                "motor_direction"
+            ] = "FORWARD"
+
 
             print(
-                f"⚙️ MOTOR: "
-                f"QUAY THUẬN "
-                f"({MOTOR_SPEED}%)"
+                "⚙️ MOTOR: QUAY THUẬN "
+                "(NHIỆT ĐỘ > 30°C)"
             )
 
 
-        # ====================================================
+        # ----------------------------------------------------
         # NHIỆT ĐỘ <= 30°C
-        # ====================================================
+        # ----------------------------------------------------
 
         else:
 
             motor.stop()
 
-            with lock:
-                state["motor"] = False
+            system_state["motor_on"] = False
+
+            system_state[
+                "motor_direction"
+            ] = "STOP"
+
 
             print(
-                "⚙️ MOTOR: DỪNG"
+                "⚙️ MOTOR: DỪNG "
+                "(NHIỆT ĐỘ <= 30°C)"
             )
 
 
     except Exception as e:
 
         print(
-            f"❌ Lỗi motor: {e}"
+            f"❌ Lỗi điều khiển Motor: {e}"
         )
 
 
 # ============================================================
-# HIỂN THỊ THÔNG TIN
+# CẬP NHẬT HỆ THỐNG
 # ============================================================
 
-def display_information(
-    location,
-    weather,
-    air
-):
+def update_system(location):
 
     print()
-    print("=" * 65)
 
     print(
-        "                 THÔNG TIN THỜI TIẾT"
-    )
-
-    print("=" * 65)
-
-
-    print(
-        f"📍 Thành phố   : "
-        f"{location['name']}"
+        "============================================================"
     )
 
     print(
-        f"📌 Tọa độ      : "
-        f"{location['latitude']}, "
-        f"{location['longitude']}"
-    )
-
-
-    print(
-        f"🌡️ Nhiệt độ    : "
-        f"{weather['temperature']:.1f} °C"
+        "                 CẬP NHẬT DỮ LIỆU"
     )
 
     print(
-        f"🌤️ Thời tiết   : "
-        f"{weather['description']}"
-    )
-
-    print(
-        f"🔢 WeatherCode : "
-        f"{weather['weather_code']}"
-    )
-
-    print(
-        f"💧 Lượng mưa   : "
-        f"{weather['rain_mm']:.2f} mm"
-    )
-
-    print(
-        f"☔ Lượng mưa TP: "
-        f"{weather['precipitation_mm']:.2f} mm"
+        "============================================================"
     )
 
 
-    if weather["is_raining"]:
-
-        print(
-            "🌧️ Trời mưa    : CÓ"
-        )
-
-    else:
-
-        print(
-            "☀️ Trời mưa    : KHÔNG"
-        )
-
-
-    # ========================================================
-    # AIR QUALITY
-    # ========================================================
-
-    print()
-    print(
-        "              CHẤT LƯỢNG KHÔNG KHÍ"
-    )
-
-    print("-" * 65)
-
-
-    if air:
-
-        print(
-            f"🌫️ PM2.5       : "
-            f"{air['pm2_5']} µg/m³"
-        )
-
-        print(
-            f"🌫️ PM10        : "
-            f"{air['pm10']} µg/m³"
-        )
-
-        print(
-            f"📊 US AQI      : "
-            f"{air['us_aqi']}"
-        )
-
-    else:
-
-        print(
-            "❌ Không lấy được dữ liệu không khí."
-        )
-
-
-    # ========================================================
-    # THIẾT BỊ
-    # ========================================================
-
-    print()
-    print(
-        "                 ĐIỀU KHIỂN THIẾT BỊ"
-    )
-
-    print("-" * 65)
-
-
-    print(
-        f"💡 ĐÈN         : "
-        f"{'BẬT' if state['light'] else 'TẮT'}"
-    )
-
-    print(
-        f"⚙️ MOTOR       : "
-        f"{'QUAY THUẬN' if state['motor'] else 'DỪNG'}"
-    )
-
-
-    print("=" * 65)
-
-
-# ============================================================
-# CẬP NHẬT THỜI TIẾT
-# ============================================================
-
-def update_weather(location):
-
-    print()
-    print(
-        "🌐 Đang cập nhật dữ liệu..."
-    )
-
-
-    # ========================================================
-    # WEATHER
-    # ========================================================
+    # --------------------------------------------------------
+    # Lấy thời tiết
+    # --------------------------------------------------------
 
     weather = get_weather(
-
-        location["latitude"],
-
-        location["longitude"]
+        location
     )
 
+
     if weather is None:
+
+        print()
+
+        print(
+            "❌ Không thể cập nhật hệ thống."
+        )
 
         return False
 
 
-    # ========================================================
-    # AIR QUALITY
-    # ========================================================
+    # --------------------------------------------------------
+    # Lấy chất lượng không khí
+    # --------------------------------------------------------
 
     air = get_air_quality(
-
-        location["latitude"],
-
-        location["longitude"]
+        location
     )
 
 
-    # ========================================================
-    # LƯU STATE
-    # ========================================================
+    # --------------------------------------------------------
+    # Lưu trạng thái
+    # --------------------------------------------------------
 
-    with lock:
+    system_state["city"] = location[
+        "name"
+    ]
 
-        state["city"] = \
-            location["name"]
+    system_state["latitude"] = location[
+        "latitude"
+    ]
 
-        state["latitude"] = \
-            location["latitude"]
+    system_state["longitude"] = location[
+        "longitude"
+    ]
 
-        state["longitude"] = \
-            location["longitude"]
+    system_state["temperature"] = weather[
+        "temperature"
+    ]
 
-        state["temperature"] = \
-            weather["temperature"]
+    system_state["rain"] = weather[
+        "rain"
+    ]
 
-        state["weather_code"] = \
-            weather["weather_code"]
+    system_state["weather_code"] = weather[
+        "weather_code"
+    ]
 
-        state["weather_description"] = \
-            weather["description"]
+    system_state["weather_description"] = weather[
+        "description"
+    ]
 
-        state["rain_mm"] = \
-            weather["rain_mm"]
+    system_state["is_raining"] = weather[
+        "is_raining"
+    ]
 
-        state["precipitation_mm"] = \
-            weather["precipitation_mm"]
+    system_state["pm25"] = air[
+        "pm25"
+    ]
 
-        state["is_raining"] = \
-            weather["is_raining"]
+    system_state["pm10"] = air[
+        "pm10"
+    ]
 
+    system_state["us_aqi"] = air[
+        "us_aqi"
+    ]
 
-        if air:
-
-            state["pm10"] = \
-                air["pm10"]
-
-            state["pm2_5"] = \
-                air["pm2_5"]
-
-            state["us_aqi"] = \
-                air["us_aqi"]
-
-
-    # ========================================================
-    # HIỂN THỊ
-    # ========================================================
-
-    display_information(
-
-        location,
-
-        weather,
-
-        air
+    system_state["last_update"] = time.strftime(
+        "%H:%M:%S"
     )
 
 
-    # ========================================================
-    # ĐIỀU KHIỂN ĐÈN
-    # ========================================================
+    # --------------------------------------------------------
+    # ĐIỀU KHIỂN THIẾT BỊ
+    # --------------------------------------------------------
 
-    control_light(
+    print()
+
+    print(
+        "🔧 ĐANG ĐIỀU KHIỂN THIẾT BỊ..."
+    )
+
+    control_led(
         weather["is_raining"]
     )
-
-
-    # ========================================================
-    # ĐIỀU KHIỂN MOTOR
-    # ========================================================
 
     control_motor(
         weather["temperature"]
     )
 
 
+    # --------------------------------------------------------
+    # Hiển thị trạng thái
+    # --------------------------------------------------------
+
+    print_status()
+
+
     return True
 
 
 # ============================================================
-# CHẾ ĐỘ TEST
+# HIỂN THỊ TRẠNG THÁI
 # ============================================================
 
-def test_mode():
-
-    print()
-    print("=" * 65)
-
-    print(
-        "                       CHẾ ĐỘ TEST"
-    )
-
-    print("=" * 65)
-
-    print(
-        "Dùng để kiểm tra phần cứng."
-    )
+def print_status():
 
     print()
 
+    print(
+        "============================================================"
+    )
 
-    # --------------------------------------------------------
-    # NHIỆT ĐỘ
-    # --------------------------------------------------------
+    print(
+        "                    THÔNG TIN THỜI TIẾT"
+    )
 
-    while True:
+    print(
+        "============================================================"
+    )
 
-        try:
 
-            temperature = float(
-                input(
-                    "🌡️ Nhập nhiệt độ (°C): "
-                )
-            )
+    print(
+        f"📍 Thành phố     : "
+        f"{system_state['city']}"
+    )
 
-            break
 
-        except ValueError:
+    print(
+        f"🌡️ Nhiệt độ      : "
+        f"{system_state['temperature']:.1f} °C"
+    )
+
+
+    print(
+        f"🌤️ Thời tiết     : "
+        f"{system_state['weather_description']}"
+    )
+
+
+    print(
+        f"🔢 Weather Code  : "
+        f"{system_state['weather_code']}"
+    )
+
+
+    print(
+        f"💧 Lượng mưa     : "
+        f"{system_state['rain']:.1f} mm"
+    )
+
+
+    print(
+        f"🌧️ Trời mưa      : "
+        f"{'CÓ' if system_state['is_raining'] else 'KHÔNG'}"
+    )
+
+
+    print()
+
+    print(
+        "---------------- CHẤT LƯỢNG KHÔNG KHÍ ----------------"
+    )
+
+
+    if system_state["pm25"] is not None:
+
+        print(
+            f"PM2.5           : "
+            f"{system_state['pm25']:.1f} µg/m³"
+        )
+
+    else:
+
+        print(
+            "PM2.5           : Không có dữ liệu"
+        )
+
+
+    if system_state["pm10"] is not None:
+
+        print(
+            f"PM10            : "
+            f"{system_state['pm10']:.1f} µg/m³"
+        )
+
+    else:
+
+        print(
+            "PM10            : Không có dữ liệu"
+        )
+
+
+    if system_state["us_aqi"] is not None:
+
+        print(
+            f"US AQI          : "
+            f"{system_state['us_aqi']}"
+        )
+
+    else:
+
+        print(
+            "US AQI          : Không có dữ liệu"
+        )
+
+
+    print()
+
+    print(
+        "---------------- ĐIỀU KHIỂN THIẾT BỊ ----------------"
+    )
+
+
+    print(
+        f"💡 ĐÈN           : "
+        f"{'BẬT' if system_state['led_on'] else 'TẮT'}"
+    )
+
+
+    print(
+        f"⚙️ MOTOR         : "
+        f"{'ĐANG CHẠY' if system_state['motor_on'] else 'DỪNG'}"
+    )
+
+
+    print(
+        f"↪️ Chiều Motor    : "
+        f"{system_state['motor_direction']}"
+    )
+
+
+    print()
+
+    print(
+        f"🕐 Cập nhật lúc   : "
+        f"{system_state['last_update']}"
+    )
+
+
+    print(
+        "============================================================"
+    )
+
+
+# ============================================================
+# TẮT THIẾT BỊ AN TOÀN
+# ============================================================
+
+def shutdown():
+
+    print()
+
+    print(
+        "🛑 ĐANG TẮT HỆ THỐNG..."
+    )
+
+
+    try:
+
+        if motor is not None:
+
+            motor.stop()
+
+            motor.close()
 
             print(
-                "⚠️ Vui lòng nhập số."
+                "✅ Motor đã dừng."
             )
 
-
-    # --------------------------------------------------------
-    # MƯA
-    # --------------------------------------------------------
-
-    while True:
-
-        rain = input(
-            "🌧️ Có mưa không? (y/n): "
-        ).lower().strip()
-
-
-        if rain == "y":
-
-            is_raining = True
-            break
-
-
-        if rain == "n":
-
-            is_raining = False
-            break
-
+    except Exception as e:
 
         print(
-            "⚠️ Chỉ nhập y hoặc n."
+            f"⚠️ Lỗi tắt motor: {e}"
         )
 
 
-    print()
-    print("=" * 65)
+    try:
 
-    print(
-        f"🌡️ Nhiệt độ : "
-        f"{temperature} °C"
-    )
+        if led is not None:
 
-    print(
-        f"🌧️ Mưa      : "
-        f"{'CÓ' if is_raining else 'KHÔNG'}"
-    )
+            led.off()
 
-    print("=" * 65)
+            led.close()
 
-
-    # Điều khiển theo điều kiện đề bài
-
-    control_light(
-        is_raining
-    )
-
-    control_motor(
-        temperature
-    )
-
-
-# ============================================================
-# HIỂN THỊ STATUS
-# ============================================================
-
-def show_status():
-
-    with lock:
-
-        print()
-        print("=" * 65)
-
-        print(
-            "                    TRẠNG THÁI"
-        )
-
-        print("=" * 65)
-
-        print(
-            f"📍 Thành phố : "
-            f"{state['city']}"
-        )
-
-        print(
-            f"🌡️ Nhiệt độ  : "
-            f"{state['temperature']} °C"
-        )
-
-        print(
-            f"🌤️ Thời tiết : "
-            f"{state['weather_description']}"
-        )
-
-        print(
-            f"🌧️ Trời mưa  : "
-            f"{'CÓ' if state['is_raining'] else 'KHÔNG'}"
-        )
-
-        print(
-            f"💡 Đèn       : "
-            f"{'BẬT' if state['light'] else 'TẮT'}"
-        )
-
-        print(
-            f"⚙️ Motor     : "
-            f"{'QUAY THUẬN' if state['motor'] else 'DỪNG'}"
-        )
-
-        print()
-
-        print(
-            f"🌫️ PM2.5     : "
-            f"{state['pm2_5']}"
-        )
-
-        print(
-            f"🌫️ PM10      : "
-            f"{state['pm10']}"
-        )
-
-        print(
-            f"📊 US AQI    : "
-            f"{state['us_aqi']}"
-        )
-
-        print("=" * 65)
-
-
-# ============================================================
-# TỰ ĐỘNG CẬP NHẬT
-# ============================================================
-
-def auto_update():
-
-    while True:
-
-        time.sleep(
-            UPDATE_INTERVAL
-        )
-
-        with lock:
-
-            city = state["city"]
-
-            latitude = state[
-                "latitude"
-            ]
-
-            longitude = state[
-                "longitude"
-            ]
-
-
-        if city:
-
-            print()
             print(
-                "🔄 TỰ ĐỘNG CẬP NHẬT..."
+                "✅ LED đã tắt."
             )
 
+    except Exception as e:
 
-            location = {
-
-                "name": city,
-
-                "latitude":
-                    latitude,
-
-                "longitude":
-                    longitude
-            }
+        print(
+            f"⚠️ Lỗi tắt LED: {e}"
+        )
 
 
-            update_weather(
-                location
-            )
+    print(
+        "✅ Đã giải phóng GPIO."
+    )
 
 
 # ============================================================
@@ -1171,15 +1339,17 @@ def input_city():
 
     while True:
 
+        print()
+
         city = input(
-            "\n📍 Nhập thành phố: "
+            "📍 Nhập thành phố: "
         ).strip()
 
 
-        if not city:
+        if city == "":
 
             print(
-                "⚠️ Không được bỏ trống."
+                "❌ Không được để trống."
             )
 
             continue
@@ -1190,32 +1360,163 @@ def input_city():
         )
 
 
-        if location:
+        if location is not None:
 
             return location
 
 
+        print()
+
+        print(
+            "⚠️ Hãy nhập lại thành phố."
+        )
+
+
 # ============================================================
-# MAIN
+# MENU
+# ============================================================
+
+def show_menu():
+
+    print()
+
+    print(
+        "============================================================"
+    )
+
+    print(
+        "                         MENU"
+    )
+
+    print(
+        "============================================================"
+    )
+
+    print(
+        "1. Nhập thành phố mới"
+    )
+
+    print(
+        "2. Cập nhật thời tiết ngay"
+    )
+
+    print(
+        "3. Xem trạng thái"
+    )
+
+    print(
+        "4. Tự động cập nhật"
+    )
+
+    print(
+        "q. Thoát chương trình"
+    )
+
+    print(
+        "============================================================"
+    )
+
+
+# ============================================================
+# CHẾ ĐỘ TỰ ĐỘNG
+# ============================================================
+
+def auto_update(location):
+
+    print()
+
+    print(
+        "============================================================"
+    )
+
+    print(
+        "                 CHẾ ĐỘ TỰ ĐỘNG"
+    )
+
+    print(
+        f" Thành phố: {location['name']}"
+    )
+
+    print(
+        f" Cập nhật mỗi {UPDATE_INTERVAL} giây"
+    )
+
+    print(
+        " Nhấn Ctrl+C để quay lại menu."
+    )
+
+    print(
+        "============================================================"
+    )
+
+
+    try:
+
+        while True:
+
+            update_system(
+                location
+            )
+
+
+            print()
+
+            print(
+                f"⏳ Chờ {UPDATE_INTERVAL} giây "
+                f"để cập nhật..."
+            )
+
+
+            time.sleep(
+                UPDATE_INTERVAL
+            )
+
+
+    except KeyboardInterrupt:
+
+        print()
+
+        print(
+            "↩️ Đã thoát chế độ tự động."
+        )
+
+
+# ============================================================
+# CHƯƠNG TRÌNH CHÍNH
 # ============================================================
 
 def main():
 
     print()
-    print("=" * 65)
 
     print(
-        "       HỆ THỐNG ĐIỀU KHIỂN THEO THỜI TIẾT"
-    )
-
-    print("=" * 65)
-
-    print(
-        "Weather API : Open-Meteo"
+        "============================================================"
     )
 
     print(
-        "Air API     : Open-Meteo Air Quality"
+        "       HỆ THỐNG ĐIỀU KHIỂN THIẾT BỊ THEO THỜI TIẾT"
+    )
+
+    print(
+        "============================================================"
+    )
+
+    print(
+        "WEATHER API:"
+    )
+
+    print(
+        WEATHER_URL
+    )
+
+    print()
+
+    print(
+        "AIR QUALITY API:"
+    )
+
+    print(
+        AIR_URL
     )
 
     print()
@@ -1225,147 +1526,99 @@ def main():
     )
 
     print(
-        "  🌧️ Có mưa       → ĐÈN BẬT"
+        "🌧️ Trời mưa      -> BẬT ĐÈN"
     )
 
     print(
-        "  ☀️ Không mưa    → ĐÈN TẮT"
+        "🌡️ Nhiệt độ > 30 -> MOTOR QUAY THUẬN"
     )
 
     print(
-        "  🌡️ > 30°C       → MOTOR QUAY THUẬN"
+        "🌡️ Nhiệt độ <=30 -> MOTOR DỪNG"
     )
 
     print(
-        "  🌡️ <= 30°C      → MOTOR DỪNG"
+        "============================================================"
     )
 
-    print("=" * 65)
 
-
-    # ========================================================
-    # NHẬP THÀNH PHỐ
-    # ========================================================
+    # --------------------------------------------------------
+    # Nhập thành phố ban đầu
+    # --------------------------------------------------------
 
     location = input_city()
 
 
-    # ========================================================
-    # LẤY DỮ LIỆU LẦN ĐẦU
-    # ========================================================
+    # --------------------------------------------------------
+    # Lấy dữ liệu lần đầu
+    # --------------------------------------------------------
 
-    update_weather(
+    update_system(
         location
     )
 
 
-    # ========================================================
-    # THREAD TỰ ĐỘNG
-    # ========================================================
-
-    threading.Thread(
-
-        target=auto_update,
-
-        daemon=True
-
-    ).start()
-
-
-    # ========================================================
-    # MENU
-    # ========================================================
+    # --------------------------------------------------------
+    # MENU CHÍNH
+    # --------------------------------------------------------
 
     while True:
 
-        print()
-        print("=" * 65)
-
-        print(
-            "                         MENU"
-        )
-
-        print("=" * 65)
-
-        print(
-            "1. Nhập thành phố mới"
-        )
-
-        print(
-            "2. Cập nhật thời tiết ngay"
-        )
-
-        print(
-            "3. Xem trạng thái"
-        )
-
-        print(
-            "4. Chế độ TEST phần cứng"
-        )
-
-        print(
-            "q. Thoát"
-        )
-
-        print("=" * 65)
+        show_menu()
 
 
-        try:
-
-            choice = input(
-                "👉 Nhập lựa chọn: "
-            ).strip().lower()
-
-        except KeyboardInterrupt:
-
-            break
+        choice = input(
+            "👉 Nhập lựa chọn: "
+        ).strip().lower()
 
 
-        # ----------------------------------------------------
-        # THÀNH PHỐ MỚI
-        # ----------------------------------------------------
+        # ====================================================
+        # 1. Đổi thành phố
+        # ====================================================
 
         if choice == "1":
 
             location = input_city()
 
-            update_weather(
+            update_system(
                 location
             )
 
 
-        # ----------------------------------------------------
-        # CẬP NHẬT
-        # ----------------------------------------------------
+        # ====================================================
+        # 2. Cập nhật ngay
+        # ====================================================
 
         elif choice == "2":
 
-            update_weather(
+            update_system(
                 location
             )
 
 
-        # ----------------------------------------------------
-        # STATUS
-        # ----------------------------------------------------
+        # ====================================================
+        # 3. Xem trạng thái
+        # ====================================================
 
         elif choice == "3":
 
-            show_status()
+            print_status()
 
 
-        # ----------------------------------------------------
-        # TEST
-        # ----------------------------------------------------
+        # ====================================================
+        # 4. Tự động cập nhật
+        # ====================================================
 
         elif choice == "4":
 
-            test_mode()
+            auto_update(
+                location
+            )
 
 
-        # ----------------------------------------------------
-        # THOÁT
-        # ----------------------------------------------------
+        # ====================================================
+        # q. Thoát
+        # ====================================================
 
         elif choice == "q":
 
@@ -1374,13 +1627,15 @@ def main():
 
         else:
 
+            print()
+
             print(
-                "⚠️ Lựa chọn không hợp lệ."
+                "❌ Lựa chọn không hợp lệ."
             )
 
 
 # ============================================================
-# CLEANUP
+# CHẠY CHƯƠNG TRÌNH
 # ============================================================
 
 if __name__ == "__main__":
@@ -1391,48 +1646,26 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
 
+        print()
+
         print(
-            "\n🛑 Đang dừng chương trình..."
+            "🛑 Người dùng yêu cầu dừng chương trình."
+        )
+
+    except Exception as e:
+
+        print()
+
+        print(
+            f"❌ Lỗi chương trình: {e}"
         )
 
     finally:
 
-        print(
-            "⚙️ Đang dừng motor..."
-        )
+        shutdown()
 
-        if motor:
-
-            try:
-
-                motor.stop()
-                motor.close()
-
-            except:
-                pass
-
+        print()
 
         print(
-            "💡 Đang tắt đèn..."
-        )
-
-        try:
-
-            GPIO.output(
-                LIGHT_PIN,
-                GPIO.LOW
-            )
-
-        except:
-            pass
-
-
-        GPIO.cleanup()
-
-        print(
-            "✅ Đã giải phóng GPIO."
-        )
-
-        print(
-            "👋 Kết thúc chương trình."
+            "👋 Chương trình kết thúc."
         )
