@@ -1,0 +1,1050 @@
+import time
+import threading
+
+import board
+import adafruit_dht
+
+from digitalio import DigitalInOut, Direction
+from adafruit_motor import stepper
+
+from flask import Flask, render_template_string, jsonify
+
+
+# ============================================================
+# GPIO
+# ============================================================
+
+IN1 = board.D17
+IN2 = board.D18
+IN3 = board.D27
+IN4 = board.D22
+
+DHT_PIN = board.D4
+
+
+# ============================================================
+# STEPPER MOTOR
+# 28BYJ-48 + ULN2003
+# ============================================================
+
+coil1 = DigitalInOut(IN1)
+coil2 = DigitalInOut(IN2)
+coil3 = DigitalInOut(IN3)
+coil4 = DigitalInOut(IN4)
+
+for coil in (coil1, coil2, coil3, coil4):
+    coil.direction = Direction.OUTPUT
+
+
+# Giống code mẫu:
+# A = IN1 + IN3
+# B = IN2 + IN4
+motor = stepper.StepperMotor(
+    coil1,
+    coil3,
+    coil2,
+    coil4,
+    microsteps=None
+)
+
+
+# 28BYJ-48 half-step
+STEPS_PER_REV = 4096
+
+
+# ============================================================
+# DHT11
+# ============================================================
+
+dht = adafruit_dht.DHT11(DHT_PIN)
+
+
+# ============================================================
+# MOTOR STATE
+# ============================================================
+
+state = {
+    "running": False,
+
+    # stepper.FORWARD / stepper.BACKWARD
+    "direction": "FORWARD",
+
+    # Tốc độ:
+    # 1 = chậm
+    # 2 = vừa
+    # 3 = nhanh
+    # 4 = rất nhanh
+    "speed": 2,
+
+    # Số step mỗi lần motor.onestep()
+    # Góc tương ứng chỉ dùng để hiển thị.
+    "step_angle": 5.625,
+
+    # Góc lý thuyết hiện tại
+    "angle": 0.0,
+
+    # DHT11
+    "temperature": None,
+    "humidity": None,
+}
+
+lock = threading.Lock()
+
+
+# ============================================================
+# SPEED
+# ============================================================
+
+SPEED_DELAY = {
+    1: 0.005,
+    2: 0.003,
+    3: 0.002,
+    4: 0.001,
+}
+
+
+# ============================================================
+# STEPPER LOOP
+# ============================================================
+
+def motor_loop():
+
+    while True:
+
+        with lock:
+            running = state["running"]
+            direction = state["direction"]
+            speed = state["speed"]
+
+        # ----------------------------------------------------
+        # Motor đang dừng
+        # ----------------------------------------------------
+
+        if not running:
+            time.sleep(0.01)
+            continue
+
+
+        # ----------------------------------------------------
+        # Chọn chiều
+        # ----------------------------------------------------
+
+        if direction == "FORWARD":
+            motor_direction = stepper.FORWARD
+            angle_delta = state["step_angle"]
+
+        else:
+            motor_direction = stepper.BACKWARD
+            angle_delta = -state["step_angle"]
+
+
+        # ----------------------------------------------------
+        # Quay 1 step
+        # ----------------------------------------------------
+
+        try:
+
+            motor.onestep(
+                direction=motor_direction,
+                style=stepper.INTERLEAVE
+            )
+
+        except Exception as e:
+
+            print(f"[MOTOR ERROR] {e}")
+
+            with lock:
+                state["running"] = False
+
+            continue
+
+
+        # ----------------------------------------------------
+        # Cập nhật góc
+        # ----------------------------------------------------
+
+        with lock:
+
+            state["angle"] += angle_delta
+
+            # Hiển thị trong khoảng 0 - 360
+            state["angle"] %= 360
+
+
+        # ----------------------------------------------------
+        # Tốc độ
+        # ----------------------------------------------------
+
+        with lock:
+            delay = SPEED_DELAY.get(
+                state["speed"],
+                SPEED_DELAY[2]
+            )
+
+        time.sleep(delay)
+
+
+# ============================================================
+# DHT11 LOOP
+# ============================================================
+
+def dht_loop():
+
+    while True:
+
+        try:
+
+            temperature = dht.temperature
+            humidity = dht.humidity
+
+            if temperature is not None:
+
+                with lock:
+                    state["temperature"] = round(
+                        temperature,
+                        1
+                    )
+
+            if humidity is not None:
+
+                with lock:
+                    state["humidity"] = round(
+                        humidity,
+                        1
+                    )
+
+        except RuntimeError:
+
+            # DHT11 đôi khi đọc lỗi tạm thời
+            pass
+
+        except Exception as e:
+
+            print(f"[DHT11 ERROR] {e}")
+
+        # DHT11 chỉ nên đọc khoảng 1-2 lần/giây
+        time.sleep(2)
+
+
+# ============================================================
+# START THREADS
+# ============================================================
+
+threading.Thread(
+    target=motor_loop,
+    daemon=True
+).start()
+
+threading.Thread(
+    target=dht_loop,
+    daemon=True
+).start()
+
+
+# ============================================================
+# FLASK
+# ============================================================
+
+app = Flask(__name__)
+
+
+# ============================================================
+# HTML
+# ============================================================
+
+HTML = """
+<!DOCTYPE html>
+
+<html lang="vi">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>DHT11 & Stepper</title>
+
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+
+    margin: 0;
+
+    min-height: 100vh;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: #111827;
+
+    color: #ffffff;
+
+    font-family: Arial, sans-serif;
+}
+
+
+.container {
+
+    width: 100%;
+
+    max-width: 420px;
+
+    padding: 16px;
+}
+
+
+.card {
+
+    background: #1f2937;
+
+    border-radius: 16px;
+
+    padding: 20px;
+}
+
+
+h1 {
+
+    text-align: center;
+
+    font-size: 21px;
+
+    margin: 0 0 18px;
+}
+
+
+/* =========================
+   DHT11
+   ========================= */
+
+.sensor {
+
+    display: grid;
+
+    grid-template-columns: 1fr 1fr;
+
+    gap: 10px;
+
+    margin-bottom: 14px;
+}
+
+
+.sensor-box {
+
+    background: #111827;
+
+    border-radius: 12px;
+
+    padding: 14px;
+
+    text-align: center;
+}
+
+
+.label {
+
+    font-size: 12px;
+
+    color: #9ca3af;
+
+    margin-bottom: 6px;
+}
+
+
+.value {
+
+    font-size: 27px;
+
+    font-weight: bold;
+}
+
+
+.unit {
+
+    font-size: 13px;
+
+    color: #9ca3af;
+}
+
+
+/* =========================
+   MOTOR STATUS
+   ========================= */
+
+.status {
+
+    background: #111827;
+
+    border-radius: 12px;
+
+    padding: 14px;
+
+    text-align: center;
+
+    margin-bottom: 12px;
+}
+
+
+.status-main {
+
+    font-size: 20px;
+
+    font-weight: bold;
+
+    margin-bottom: 5px;
+}
+
+
+.status-direction {
+
+    color: #9ca3af;
+
+    font-size: 14px;
+}
+
+
+/* =========================
+   BUTTONS
+   ========================= */
+
+.row {
+
+    display: grid;
+
+    grid-template-columns: 1fr 1fr;
+
+    gap: 8px;
+
+    margin-bottom: 8px;
+}
+
+
+button {
+
+    border: none;
+
+    border-radius: 10px;
+
+    padding: 13px 8px;
+
+    font-size: 14px;
+
+    font-weight: bold;
+
+    cursor: pointer;
+
+    color: white;
+}
+
+
+.on {
+
+    background: #16a34a;
+}
+
+
+.off {
+
+    background: #dc2626;
+}
+
+
+.forward {
+
+    background: #2563eb;
+}
+
+
+.backward {
+
+    background: #7c3aed;
+}
+
+
+.speed {
+
+    background: #374151;
+}
+
+
+.speed.active {
+
+    background: #2563eb;
+}
+
+
+/* =========================
+   ANGLE
+   ========================= */
+
+.angle-box {
+
+    background: #111827;
+
+    border-radius: 12px;
+
+    padding: 14px;
+
+    margin-top: 10px;
+}
+
+
+.angle-header {
+
+    display: flex;
+
+    justify-content: space-between;
+
+    font-size: 14px;
+
+    margin-bottom: 10px;
+}
+
+
+input[type="range"] {
+
+    width: 100%;
+}
+
+
+/* =========================
+   CURRENT ANGLE
+   ========================= */
+
+.current-angle {
+
+    text-align: center;
+
+    color: #9ca3af;
+
+    font-size: 13px;
+
+    margin-top: 12px;
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+<div class="card">
+
+
+<h1>DHT11 & STEPPER MOTOR</h1>
+
+
+<!-- DHT11 -->
+
+<div class="sensor">
+
+    <div class="sensor-box">
+
+        <div class="label">
+            NHIỆT ĐỘ
+        </div>
+
+        <div class="value">
+
+            <span id="temperature">
+                --
+            </span>
+
+            <span class="unit">
+                °C
+            </span>
+
+        </div>
+
+    </div>
+
+
+    <div class="sensor-box">
+
+        <div class="label">
+            ĐỘ ẨM
+        </div>
+
+        <div class="value">
+
+            <span id="humidity">
+                --
+            </span>
+
+            <span class="unit">
+                %
+            </span>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- MOTOR -->
+
+<div class="status">
+
+    <div
+        id="motorStatus"
+        class="status-main"
+    >
+        ĐANG DỪNG
+    </div>
+
+    <div
+        id="direction"
+        class="status-direction"
+    >
+        ↻ THUẬN
+    </div>
+
+</div>
+
+
+<!-- ON / OFF -->
+
+<div class="row">
+
+    <button
+        class="on"
+        onclick="send('/api/motor/on')"
+    >
+        ▶ BẬT
+    </button>
+
+
+    <button
+        class="off"
+        onclick="send('/api/motor/off')"
+    >
+        ■ DỪNG
+    </button>
+
+</div>
+
+
+<!-- DIRECTION -->
+
+<div class="row">
+
+    <button
+        class="forward"
+        onclick="send('/api/motor/direction/forward')"
+    >
+        ↻ THUẬN
+    </button>
+
+
+    <button
+        class="backward"
+        onclick="send('/api/motor/direction/backward')"
+    >
+        ↺ NGƯỢC
+    </button>
+
+</div>
+
+
+<!-- SPEED -->
+
+<div class="row">
+
+    <button
+        class="speed"
+        data-speed="1"
+        onclick="setSpeed(1)"
+    >
+        CHẬM
+    </button>
+
+
+    <button
+        class="speed"
+        data-speed="2"
+        onclick="setSpeed(2)"
+    >
+        VỪA
+    </button>
+
+
+    <button
+        class="speed"
+        data-speed="3"
+        onclick="setSpeed(3)"
+    >
+        NHANH
+    </button>
+
+
+    <button
+        class="speed"
+        data-speed="4"
+        onclick="setSpeed(4)"
+    >
+        MAX
+    </button>
+
+</div>
+
+
+<!-- ANGLE -->
+
+<div class="angle-box">
+
+    <div class="angle-header">
+
+        <span>
+            Góc mỗi bước
+        </span>
+
+        <strong>
+            <span id="stepAngle">
+                5.625
+            </span>°
+        </strong>
+
+    </div>
+
+
+    <input
+        id="angleSlider"
+        type="range"
+        min="1"
+        max="45"
+        step="0.625"
+        value="5.625"
+        oninput="setAngle(this.value)"
+    >
+
+</div>
+
+
+<!-- CURRENT ANGLE -->
+
+<div class="current-angle">
+
+    Góc hiện tại:
+
+    <strong>
+        <span id="currentAngle">
+            0.0
+        </span>°
+    </strong>
+
+</div>
+
+
+</div>
+
+</div>
+
+
+<script>
+
+
+async function send(url) {
+
+    try {
+
+        const response =
+            await fetch(url);
+
+        const data =
+            await response.json();
+
+        updateUI(data);
+
+    } catch (error) {
+
+        console.error(error);
+
+    }
+
+}
+
+
+async function setSpeed(speed) {
+
+    await send(
+        '/api/motor/speed/' + speed
+    );
+
+}
+
+
+async function setAngle(angle) {
+
+    document.getElementById(
+        'stepAngle'
+    ).innerText =
+        Number(angle).toFixed(3);
+
+
+    await send(
+        '/api/motor/angle/' + angle
+    );
+
+}
+
+
+function updateUI(data) {
+
+
+    /* DHT11 */
+
+    document.getElementById(
+        'temperature'
+    ).innerText =
+        data.temperature ?? '--';
+
+
+    document.getElementById(
+        'humidity'
+    ).innerText =
+        data.humidity ?? '--';
+
+
+    /* Motor */
+
+    document.getElementById(
+        'motorStatus'
+    ).innerText =
+        data.running
+            ? 'ĐANG CHẠY'
+            : 'ĐANG DỪNG';
+
+
+    document.getElementById(
+        'direction'
+    ).innerText =
+        data.direction === 'FORWARD'
+            ? '↻ THUẬN'
+            : '↺ NGƯỢC';
+
+
+    /* Current angle */
+
+    document.getElementById(
+        'currentAngle'
+    ).innerText =
+        Number(data.angle).toFixed(1);
+
+
+    /* Speed */
+
+    document
+        .querySelectorAll('.speed')
+        .forEach(button => {
+
+            button.classList.toggle(
+                'active',
+                Number(button.dataset.speed)
+                === data.speed
+            );
+
+        });
+
+}
+
+
+/* Đồng bộ mỗi 500ms */
+
+setInterval(async () => {
+
+    try {
+
+        const response =
+            await fetch('/api/status');
+
+        const data =
+            await response.json();
+
+        updateUI(data);
+
+    } catch (error) {}
+
+}, 500);
+
+
+/* Load */
+
+send('/api/status');
+
+</script>
+
+
+</body>
+
+</html>
+"""
+
+
+# ============================================================
+# API
+# ============================================================
+
+@app.route("/")
+def index():
+
+    return render_template_string(HTML)
+
+
+@app.route("/api/status")
+def api_status():
+
+    with lock:
+
+        return jsonify({
+            "running": state["running"],
+            "direction": state["direction"],
+            "speed": state["speed"],
+            "step_angle": state["step_angle"],
+            "angle": state["angle"],
+            "temperature": state["temperature"],
+            "humidity": state["humidity"],
+        })
+
+
+@app.route("/api/motor/on")
+def motor_on():
+
+    with lock:
+        state["running"] = True
+
+    return jsonify(state)
+
+
+@app.route("/api/motor/off")
+def motor_off():
+
+    with lock:
+        state["running"] = False
+
+    return jsonify(state)
+
+
+@app.route("/api/motor/direction/<direction>")
+def motor_direction(direction):
+
+    if direction not in ["forward", "backward"]:
+
+        return jsonify({
+            "error": "Invalid direction"
+        }), 400
+
+
+    with lock:
+
+        if direction == "forward":
+            state["direction"] = "FORWARD"
+
+        else:
+            state["direction"] = "BACKWARD"
+
+
+    return jsonify(state)
+
+
+@app.route("/api/motor/speed/<int:speed>")
+def motor_speed(speed):
+
+    if speed not in SPEED_DELAY:
+
+        return jsonify({
+            "error": "Invalid speed"
+        }), 400
+
+
+    with lock:
+
+        state["speed"] = speed
+
+
+    return jsonify(state)
+
+
+@app.route("/api/motor/angle/<float:angle>")
+def motor_angle(angle):
+
+    if angle <= 0:
+
+        return jsonify({
+            "error": "Invalid angle"
+        }), 400
+
+
+    with lock:
+
+        state["step_angle"] = angle
+
+
+    return jsonify(state)
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+if __name__ == "__main__":
+
+    print("=" * 50)
+    print("DHT11 + 28BYJ-48 WEB CONTROL")
+    print("=" * 50)
+
+    print("DHT11    : GPIO 4")
+
+    print(
+        "STEPPER  : GPIO 17, 18, 27, 22"
+    )
+
+    print(
+        "WEB      : http://<RASPBERRY_PI_IP>:5000"
+    )
+
+    print("=" * 50)
+
+
+    try:
+
+        app.run(
+            host="0.0.0.0",
+            port=5000,
+            debug=False,
+            threaded=True
+        )
+
+    except KeyboardInterrupt:
+
+        print("\nĐang dừng...")
+
+
+    finally:
+
+        # Nhả motor
+        motor.release()
+
+        # Giải phóng GPIO
+        coil1.deinit()
+        coil2.deinit()
+        coil3.deinit()
+        coil4.deinit()
+
+        # DHT
+        dht.exit()
+
+        print("Đã giải phóng GPIO.")
