@@ -51,13 +51,13 @@ motor = stepper.StepperMotor(
 # STEPPER CONFIG
 # ============================================================
 
-# 28BYJ-48 với half-step
+# 28BYJ-48 half-step
 STEPS_PER_REV = 4096
 
-# Góc thực tế của 1 half-step ở trục output
+# Góc lý thuyết của 1 step
 DEGREE_PER_STEP = 360.0 / STEPS_PER_REV
 
-# Nghỉ sau khi quay xong 1 nhịp
+# Nghỉ sau mỗi nhịp quay
 BURST_PAUSE = 1.0
 
 
@@ -73,6 +73,7 @@ dht = adafruit_dht.DHT11(DHT_PIN)
 # ============================================================
 
 state = {
+    # Motor ON / OFF
     "running": False,
 
     # FORWARD / BACKWARD
@@ -85,7 +86,8 @@ state = {
     "speed": 2,
 
     # Góc quay trong mỗi nhịp
-    "step_angle": 5.625,
+    # Chỉ nhận số nguyên từ 1 -> 180
+    "step_angle": 10,
 
     # Góc hiện tại
     "angle": 0.0,
@@ -119,48 +121,43 @@ def motor_loop():
 
     while True:
 
-        # ====================================================
-        # KIỂM TRA MOTOR CÓ ĐANG CHẠY KHÔNG
-        # ====================================================
+        # ----------------------------------------------------
+        # Kiểm tra motor
+        # ----------------------------------------------------
 
         with lock:
             running = state["running"]
 
         if not running:
+
             motor.release()
+
             time.sleep(0.05)
+
             continue
 
 
-        # ====================================================
-        # LẤY CẤU HÌNH HIỆN TẠI
-        # ====================================================
+        # ----------------------------------------------------
+        # Lấy cấu hình hiện tại
+        # ----------------------------------------------------
 
         with lock:
-            direction = state["direction"]
-            speed = state["speed"]
             step_angle = state["step_angle"]
+            speed = state["speed"]
+            direction = state["direction"]
 
 
-        # ====================================================
-        # XÁC ĐỊNH CHIỀU
-        # ====================================================
-
-        if direction == "FORWARD":
-            motor_direction = stepper.FORWARD
-        else:
-            motor_direction = stepper.BACKWARD
-
-
-        # ====================================================
-        # TÍNH SỐ STEP CHO 1 NHỊP
+        # ----------------------------------------------------
+        # Tính số step cho một nhịp
+        #
+        # 4096 step = 360°
         #
         # Ví dụ:
-        # 5.625° -> khoảng 64 steps
-        # 45°    -> 512 steps
-        # 90°    -> 1024 steps
-        # 180°   -> 2048 steps
-        # ====================================================
+        # 10°  -> ~114 step
+        # 45°  -> ~512 step
+        # 90°  -> ~1024 step
+        # 180° -> ~2048 step
+        # ----------------------------------------------------
 
         steps = max(
             1,
@@ -168,26 +165,49 @@ def motor_loop():
         )
 
 
-        # ====================================================
-        # QUAY ĐÚNG 1 NHỊP
-        # ====================================================
+        # ----------------------------------------------------
+        # Xác định chiều
+        # ----------------------------------------------------
+
+        if direction == "FORWARD":
+
+            motor_direction = stepper.FORWARD
+
+        else:
+
+            motor_direction = stepper.BACKWARD
+
+
+        # ----------------------------------------------------
+        # QUAY MỘT NHỊP
+        # ----------------------------------------------------
+
+        interrupted = False
 
         for _ in range(steps):
 
             # -----------------------------------------------
-            # Kiểm tra DỪNG giữa lúc đang quay
+            # Kiểm tra trạng thái
             # -----------------------------------------------
 
             with lock:
 
                 if not state["running"]:
+
+                    interrupted = True
+
                     break
 
-                # Cho phép đổi chiều trong lúc chạy
+
+                # Cho phép đổi chiều
                 if state["direction"] == "FORWARD":
+
                     motor_direction = stepper.FORWARD
+
                 else:
+
                     motor_direction = stepper.BACKWARD
+
 
                 speed = state["speed"]
 
@@ -215,18 +235,22 @@ def motor_loop():
 
             except Exception as e:
 
-                print(f"[MOTOR ERROR] {e}")
+                print(
+                    f"[MOTOR ERROR] {e}"
+                )
 
                 with lock:
                     state["running"] = False
 
                 motor.release()
 
+                interrupted = True
+
                 break
 
 
             # -----------------------------------------------
-            # Cập nhật góc hiện tại
+            # Cập nhật góc
             # -----------------------------------------------
 
             with lock:
@@ -239,7 +263,8 @@ def motor_loop():
 
                     state["angle"] -= DEGREE_PER_STEP
 
-                # Giữ góc trong khoảng 0 - 360
+
+                # Giữ góc trong 0 -> 360
                 state["angle"] %= 360.0
 
 
@@ -250,23 +275,26 @@ def motor_loop():
             time.sleep(delay)
 
 
-        # ====================================================
-        # NHẢ MOTOR SAU KHI QUAY XONG
-        # ====================================================
+        # ----------------------------------------------------
+        # Nhả motor sau khi quay xong
+        # ----------------------------------------------------
 
         motor.release()
 
 
-        # ====================================================
+        # ----------------------------------------------------
+        # Nếu đang chạy:
         # NGHỈ 1 GIÂY
-        # ====================================================
+        # ----------------------------------------------------
 
-        with lock:
-            running = state["running"]
+        if not interrupted:
 
-        if running:
+            with lock:
+                running = state["running"]
 
-            time.sleep(BURST_PAUSE)
+            if running:
+
+                time.sleep(BURST_PAUSE)
 
 
 # ============================================================
@@ -282,18 +310,29 @@ def dht_loop():
             temperature = dht.temperature
             humidity = dht.humidity
 
+
+            # ------------------------------------------------
+            # Temperature
+            # ------------------------------------------------
+
             if temperature is not None:
 
                 with lock:
+
                     state["temperature"] = round(
                         temperature,
                         1
                     )
 
 
+            # ------------------------------------------------
+            # Humidity
+            # ------------------------------------------------
+
             if humidity is not None:
 
                 with lock:
+
                     state["humidity"] = round(
                         humidity,
                         1
@@ -302,16 +341,18 @@ def dht_loop():
 
         except RuntimeError:
 
-            # DHT11 đôi khi đọc lỗi tạm thời
+            # DHT11 đôi khi lỗi đọc tạm thời
             pass
 
 
         except Exception as e:
 
-            print(f"[DHT11 ERROR] {e}")
+            print(
+                f"[DHT11 ERROR] {e}"
+            )
 
 
-        # DHT11 nên đọc khoảng 1-2 lần/giây
+        # DHT11 nên đọc khoảng 2 giây/lần
         time.sleep(2)
 
 
@@ -416,9 +457,9 @@ h1 {
 }
 
 
-/* =========================
+/* ==========================================================
    DHT11
-   ========================= */
+   ========================================================== */
 
 .sensor {
 
@@ -470,9 +511,9 @@ h1 {
 }
 
 
-/* =========================
+/* ==========================================================
    MOTOR STATUS
-   ========================= */
+   ========================================================== */
 
 .status {
 
@@ -506,9 +547,9 @@ h1 {
 }
 
 
-/* =========================
+/* ==========================================================
    BUTTONS
-   ========================= */
+   ========================================================== */
 
 .row {
 
@@ -572,9 +613,9 @@ button {
 }
 
 
-/* =========================
+/* ==========================================================
    ANGLE
-   ========================= */
+   ========================================================== */
 
 .angle-box {
 
@@ -606,9 +647,9 @@ input[type="range"] {
 }
 
 
-/* =========================
+/* ==========================================================
    CURRENT ANGLE
-   ========================= */
+   ========================================================== */
 
 .current-angle {
 
@@ -620,6 +661,7 @@ input[type="range"] {
 
     margin-top: 12px;
 }
+
 
 </style>
 
@@ -636,9 +678,12 @@ input[type="range"] {
 <h1>DHT11 & STEPPER MOTOR</h1>
 
 
-<!-- DHT11 -->
+<!-- =====================================================
+     DHT11
+     ===================================================== -->
 
 <div class="sensor">
+
 
     <div class="sensor-box">
 
@@ -646,11 +691,13 @@ input[type="range"] {
             NHIỆT ĐỘ
         </div>
 
+
         <div class="value">
 
             <span id="temperature">
                 --
             </span>
+
 
             <span class="unit">
                 °C
@@ -667,11 +714,13 @@ input[type="range"] {
             ĐỘ ẨM
         </div>
 
+
         <div class="value">
 
             <span id="humidity">
                 --
             </span>
+
 
             <span class="unit">
                 %
@@ -684,9 +733,12 @@ input[type="range"] {
 </div>
 
 
-<!-- MOTOR STATUS -->
+<!-- =====================================================
+     MOTOR STATUS
+     ===================================================== -->
 
 <div class="status">
+
 
     <div
         id="motorStatus"
@@ -703,12 +755,16 @@ input[type="range"] {
         ↻ THUẬN
     </div>
 
+
 </div>
 
 
-<!-- ON / OFF -->
+<!-- =====================================================
+     ON / OFF
+     ===================================================== -->
 
 <div class="row">
+
 
     <button
         class="on"
@@ -725,12 +781,16 @@ input[type="range"] {
         ■ DỪNG
     </button>
 
+
 </div>
 
 
-<!-- DIRECTION -->
+<!-- =====================================================
+     DIRECTION
+     ===================================================== -->
 
 <div class="row">
+
 
     <button
         class="forward"
@@ -747,12 +807,16 @@ input[type="range"] {
         ↺ NGƯỢC
     </button>
 
+
 </div>
 
 
-<!-- SPEED -->
+<!-- =====================================================
+     SPEED
+     ===================================================== -->
 
 <div class="row">
+
 
     <button
         class="speed"
@@ -789,12 +853,16 @@ input[type="range"] {
         MAX
     </button>
 
+
 </div>
 
 
-<!-- ANGLE -->
+<!-- =====================================================
+     ANGLE
+     ===================================================== -->
 
 <div class="angle-box">
+
 
     <div class="angle-header">
 
@@ -806,10 +874,11 @@ input[type="range"] {
         <strong>
 
             <span id="stepAngle">
-                5.625
+                10
             </span>°
 
         </strong>
+
 
     </div>
 
@@ -819,27 +888,32 @@ input[type="range"] {
         type="range"
         min="1"
         max="180"
-        step="0.0879"
-        value="5.625"
+        step="1"
+        value="10"
         oninput="setAngle(this.value)"
     >
+
 
 </div>
 
 
-<!-- CURRENT ANGLE -->
+<!-- =====================================================
+     CURRENT ANGLE
+     ===================================================== -->
 
 <div class="current-angle">
 
     Góc hiện tại:
 
+
     <strong>
 
         <span id="currentAngle">
-            0.0
+            0
         </span>°
 
     </strong>
+
 
 </div>
 
@@ -852,19 +926,24 @@ input[type="range"] {
 <script>
 
 
-// ============================================================
+// ==========================================================
 // SEND API
-// ============================================================
+// ==========================================================
 
 async function send(url) {
 
     try {
 
-        const response = await fetch(url);
+        const response =
+            await fetch(url);
 
-        const data = await response.json();
+
+        const data =
+            await response.json();
+
 
         updateUI(data);
+
 
     } catch (error) {
 
@@ -875,9 +954,9 @@ async function send(url) {
 }
 
 
-// ============================================================
+// ==========================================================
 // SPEED
-// ============================================================
+// ==========================================================
 
 async function setSpeed(speed) {
 
@@ -888,16 +967,19 @@ async function setSpeed(speed) {
 }
 
 
-// ============================================================
+// ==========================================================
 // ANGLE
-// ============================================================
+// ==========================================================
 
 async function setAngle(angle) {
 
+    // Chỉ lấy số nguyên
+    angle = Math.round(Number(angle));
+
+
     document.getElementById(
         'stepAngle'
-    ).innerText =
-        Number(angle).toFixed(3);
+    ).innerText = angle;
 
 
     await send(
@@ -907,14 +989,16 @@ async function setAngle(angle) {
 }
 
 
-// ============================================================
+// ==========================================================
 // UPDATE UI
-// ============================================================
+// ==========================================================
 
 function updateUI(data) {
 
 
+    // ------------------------------------------------------
     // DHT11
+    // ------------------------------------------------------
 
     document.getElementById(
         'temperature'
@@ -928,7 +1012,9 @@ function updateUI(data) {
         data.humidity ?? '--';
 
 
-    // Motor
+    // ------------------------------------------------------
+    // MOTOR STATUS
+    // ------------------------------------------------------
 
     document.getElementById(
         'motorStatus'
@@ -938,7 +1024,9 @@ function updateUI(data) {
             : 'ĐANG DỪNG';
 
 
-    // Direction
+    // ------------------------------------------------------
+    // DIRECTION
+    // ------------------------------------------------------
 
     document.getElementById(
         'direction'
@@ -948,31 +1036,39 @@ function updateUI(data) {
             : '↺ NGƯỢC';
 
 
-    // Current angle
+    // ------------------------------------------------------
+    // CURRENT ANGLE
+    // ------------------------------------------------------
 
     document.getElementById(
         'currentAngle'
     ).innerText =
-        Number(data.angle).toFixed(1);
+        Math.round(Number(data.angle));
 
 
-    // Step angle
+    // ------------------------------------------------------
+    // STEP ANGLE
+    // ------------------------------------------------------
 
     document.getElementById(
         'stepAngle'
     ).innerText =
-        Number(data.step_angle).toFixed(3);
+        Math.round(Number(data.step_angle));
 
 
-    // Slider
+    // ------------------------------------------------------
+    // SLIDER
+    // ------------------------------------------------------
 
     document.getElementById(
         'angleSlider'
     ).value =
-        data.step_angle;
+        Math.round(Number(data.step_angle));
 
 
-    // Speed
+    // ------------------------------------------------------
+    // SPEED
+    // ------------------------------------------------------
 
     document
         .querySelectorAll('.speed')
@@ -992,9 +1088,9 @@ function updateUI(data) {
 }
 
 
-// ============================================================
+// ==========================================================
 // AUTO UPDATE
-// ============================================================
+// ==========================================================
 
 setInterval(async () => {
 
@@ -1003,21 +1099,27 @@ setInterval(async () => {
         const response =
             await fetch('/api/status');
 
+
         const data =
             await response.json();
 
+
         updateUI(data);
 
+
     } catch (error) {
+
+        // Không làm gì nếu Raspberry Pi
+        // tạm thời không phản hồi
 
     }
 
 }, 500);
 
 
-// ============================================================
+// ==========================================================
 // LOAD INITIAL STATE
-// ============================================================
+// ==========================================================
 
 send('/api/status');
 
@@ -1101,7 +1203,9 @@ def motor_off():
 
         state["running"] = False
 
+
     motor.release()
+
 
     return jsonify(state)
 
@@ -1162,19 +1266,22 @@ def motor_speed(speed):
 # ANGLE
 # ============================================================
 
-@app.route("/api/motor/angle/<float:angle>")
+@app.route("/api/motor/angle/<int:angle>")
 def motor_angle(angle):
 
-    if angle <= 0 or angle > 180:
+    # Chỉ cho phép 1 -> 180 độ
+
+    if angle < 1 or angle > 180:
 
         return jsonify({
-            "error": "Angle must be between 0 and 180"
+            "error": "Angle must be between 1 and 180"
         }), 400
 
 
     with lock:
 
         state["step_angle"] = angle
+
 
         return jsonify(state)
 
@@ -1198,11 +1305,15 @@ if __name__ == "__main__":
     )
 
     print(
-        "WEB      : http://<RASPBERRY_PI_IP>:5000"
+        "ANGLE    : 1 - 180 degrees"
     )
 
     print(
         "PAUSE    : 1 second"
+    )
+
+    print(
+        "WEB      : http://<RASPBERRY_PI_IP>:5000"
     )
 
     print("=" * 50)
@@ -1220,17 +1331,21 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
 
-        print("\nĐang dừng...")
+        print("\nĐang dừng hệ thống...")
 
 
     finally:
 
-        # Dừng motor
+        # ----------------------------------------------------
+        # Nhả motor
+        # ----------------------------------------------------
 
         motor.release()
 
 
+        # ----------------------------------------------------
         # Giải phóng GPIO
+        # ----------------------------------------------------
 
         coil1.deinit()
         coil2.deinit()
@@ -1238,7 +1353,9 @@ if __name__ == "__main__":
         coil4.deinit()
 
 
+        # ----------------------------------------------------
         # DHT11
+        # ----------------------------------------------------
 
         dht.exit()
 
