@@ -8,5 +8,6 @@ ssh mypi@raspberrypi.local
 
 - Host: `raspberrypi.local`
 - Username: `mypi`
+- Pass: `iotnh10`
 - Nếu không resolve được `.local`, dùng IP của Pi thay cho hostname.
 
