@@ -4,25 +4,38 @@ Dua tren y tuong cua repo tham khao:
     https://github.com/WinG-282k4/IOT_preople_detect
 (repo goc dung SSD-MobileNet-V2 + bam vet + dem qua vach, chay tren Pi 4B).
 File nay don gian hoa yeu cau: chi CAN dem so nguoi dang xuat hien trong khung
-hinh va hien thi len 5 LED gan GPIO cua Raspberry Pi - khong dung model rieng,
-khong can tai file model, chi dung HOGDescriptor co san trong OpenCV nen chay
-duoc ngay sau khi "pip install opencv-python".
+hinh va hien thi len 5 LED gan GPIO cua Raspberry Pi - khong dung model rieng
+phai tai ve, chi dung Haar Cascade "fullbody" co san (di kem trong thu muc
+nay, file haarcascade_fullbody.xml) giong cach lam voi khuon mat trong
+face_detection/face_detection.py cua repo nay, nen chay duoc ngay sau khi
+cai opencv-python ma khong can tai model rieng (xem luu y ve phien ban ben
+duoi).
 
-Neu can do chinh xac cao hon (giong repo goc), thay ham detect_people() bang
-mot detector MobileNet-SSD/TFLite roi giu nguyen phan dieu khien LED ben duoi.
+Luu y do chinh xac: Haar Cascade don gian, chay nhe tren Pi nhung de bao sot/
+bao nham hon SSD-MobileNet cua repo goc, phu hop de hoc/demo. Neu can do
+chinh xac cao hon nhu repo goc, thay ham detect_people() bang mot detector
+MobileNet-SSD/TFLite roi giu nguyen phan dieu khien LED ben duoi.
+
+QUAN TRONG ve phien ban OpenCV: ban OpenCV 5.0 (moi nhat tren PyPI) da BO
+CascadeClassifier va HOGDescriptor khoi Python binding, script se bao loi
+"module 'cv2' has no attribute 'CascadeClassifier'" neu cai ban nay. Raspberry
+Pi OS (apt) hien van cai OpenCV 4.x nen khong bi anh huong; con neu cai bang
+pip (kem ca tren may test) phai ghim phien ban < 5 nhu huong dan ben duoi.
 
 ===========================================================================
 1) CAI DAT PHAN MEM
 ===========================================================================
-Tren Raspberry Pi (Raspberry Pi OS):
+Tren Raspberry Pi (Raspberry Pi OS, khuyen dung vi apt cai san OpenCV 4.x):
     sudo apt update
     sudo apt install -y python3-opencv python3-rpi.gpio
-    # hoac neu dung pip/venv:
-    pip install opencv-python numpy RPi.GPIO
+
+Neu dung pip/venv (tren Pi hoac may test), PHAI ghim OpenCV ban < 5 vi ly do
+neu tren:
+    pip install "opencv-python<5" numpy RPi.GPIO
 
 Tren may khong phai Pi (Windows/macOS/Linux thuong) de TEST truoc camera va
 thuat toan dem nguoi (khong co GPIO that):
-    pip install opencv-python numpy
+    pip install "opencv-python<5" numpy
     python people_count_led.py
     -> Script tu dong phat hien khong co module RPi.GPIO va chuyen sang
        "Mock GPIO": in trang thai bat/tat LED ra console thay vi dieu khien
@@ -62,6 +75,7 @@ hien duoc va so nguoi dem duoc o goc tren trai. Nhan 'q' trong cua so do de
 thoat (chuong trinh se tu tat het LED va don GPIO truoc khi ket thuc).
 """
 
+import os
 import sys
 
 import cv2
@@ -73,10 +87,12 @@ FRAME_HEIGHT = 480
 MAX_LEDS = 5
 LED_PINS = [17, 27, 22, 5, 6]  # BCM numbering, dung dung MAX_LEDS phan tu
 DETECT_EVERY_N_FRAMES = 3  # bo bot khung hinh de do tai CPU tren Pi
-HOG_SCALE = 1.05
-HOG_WIN_STRIDE = (8, 8)
-NMS_SCORE_THRESHOLD = 0.0
-NMS_IOU_THRESHOLD = 0.65
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+CASCADE_PATH = os.path.join(BASE_DIR, "haarcascade_fullbody.xml")
+CASCADE_SCALE_FACTOR = 1.05
+CASCADE_MIN_NEIGHBORS = 3
+CASCADE_MIN_SIZE = (40, 80)  # (w, h) toi thieu cua 1 nguoi trong khung, tinh bang px
 
 assert len(LED_PINS) == MAX_LEDS, "LED_PINS phai co dung MAX_LEDS chan GPIO"
 
@@ -132,27 +148,29 @@ def update_leds(people_count):
 
 
 def build_detector():
-    hog = cv2.HOGDescriptor()
-    hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())
-    return hog
+    if not hasattr(cv2, "CascadeClassifier"):
+        print(
+            "LOI: cv2.CascadeClassifier khong ton tai - ban dang cai OpenCV 5.x,"
+            " ban nay da bo API nay. Chay: pip install \"opencv-python<5\""
+            " (xem phan 1 CAI DAT PHAN MEM o dau file)."
+        )
+        sys.exit(1)
+    if not os.path.isfile(CASCADE_PATH):
+        print(f"LOI: khong tim thay {CASCADE_PATH}")
+        sys.exit(1)
+    return cv2.CascadeClassifier(CASCADE_PATH)
 
 
-def detect_people(hog, frame):
+def detect_people(detector, frame):
     """Tra ve danh sach hop (x, y, w, h) quanh nguoi phat hien duoc trong frame."""
-    boxes, weights = hog.detectMultiScale(
-        frame, winStride=HOG_WIN_STRIDE, padding=(8, 8), scale=HOG_SCALE
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    boxes = detector.detectMultiScale(
+        gray,
+        scaleFactor=CASCADE_SCALE_FACTOR,
+        minNeighbors=CASCADE_MIN_NEIGHBORS,
+        minSize=CASCADE_MIN_SIZE,
     )
-    if len(boxes) == 0:
-        return []
-
-    scores = [float(w) for w in weights]
-    indices = cv2.dnn.NMSBoxes(
-        list(boxes), scores, NMS_SCORE_THRESHOLD, NMS_IOU_THRESHOLD
-    )
-    if len(indices) == 0:
-        return []
-    indices = indices.flatten()
-    return [tuple(boxes[i]) for i in indices]
+    return [tuple(box) for box in boxes]
 
 
 def main():
@@ -167,7 +185,7 @@ def main():
         GPIO.cleanup()
         sys.exit(1)
 
-    hog = build_detector()
+    detector = build_detector()
     frame_idx = 0
     last_boxes = []
 
@@ -180,7 +198,7 @@ def main():
                 break
 
             if frame_idx % DETECT_EVERY_N_FRAMES == 0:
-                last_boxes = detect_people(hog, frame)
+                last_boxes = detect_people(detector, frame)
             frame_idx += 1
 
             people_count = len(last_boxes)
