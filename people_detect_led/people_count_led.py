@@ -4,23 +4,24 @@ Dua tren y tuong cua repo tham khao:
     https://github.com/WinG-282k4/IOT_preople_detect
 (repo goc dung SSD-MobileNet-V2 + bam vet + dem qua vach, chay tren Pi 4B).
 File nay don gian hoa yeu cau: chi CAN dem so nguoi dang xuat hien trong khung
-hinh va hien thi len 5 LED gan GPIO cua Raspberry Pi - khong dung model rieng
-phai tai ve, chi dung Haar Cascade "fullbody" co san (di kem trong thu muc
-nay, file haarcascade_fullbody.xml) giong cach lam voi khuon mat trong
-face_detection/face_detection.py cua repo nay, nen chay duoc ngay sau khi
-cai opencv-python ma khong can tai model rieng (xem luu y ve phien ban ben
-duoi).
+hinh va hien thi len 5 LED gan GPIO cua Raspberry Pi. Model dung dung y model
+repo goc de xuat - MobileNet-SSD (ban Caffe, 21 lop VOC, chi loc lay lop
+"person") - chay qua cv2.dnn, khong can GPU, nhe du de chay tren Pi.
 
-Luu y do chinh xac: Haar Cascade don gian, chay nhe tren Pi nhung de bao sot/
-bao nham hon SSD-MobileNet cua repo goc, phu hop de hoc/demo. Neu can do
-chinh xac cao hon nhu repo goc, thay ham detect_people() bang mot detector
-MobileNet-SSD/TFLite roi giu nguyen phan dieu khien LED ben duoi.
+File model (da tai san trong thu muc models/ canh script nay, khong can tai
+them gi):
+    models/MobileNetSSD_deploy.prototxt    (kien truc mang, ~29 KB)
+    models/MobileNetSSD_deploy.caffemodel  (trong so da huan luyen, ~23 MB)
+(nguon: https://github.com/djmv/MobilNet_SSD_opencv - ban Caffe pho bien nhat
+de dung voi cv2.dnn.readNetFromCaffe, MobileNet-SSD huan luyen tren VOC2007+
+2012, lop "person" la lop thu 15 trong 21 lop.)
 
 QUAN TRONG ve phien ban OpenCV: ban OpenCV 5.0 (moi nhat tren PyPI) da BO
-CascadeClassifier va HOGDescriptor khoi Python binding, script se bao loi
-"module 'cv2' has no attribute 'CascadeClassifier'" neu cai ban nay. Raspberry
-Pi OS (apt) hien van cai OpenCV 4.x nen khong bi anh huong; con neu cai bang
-pip (kem ca tren may test) phai ghim phien ban < 5 nhu huong dan ben duoi.
+readNetFromCaffe (va ca CascadeClassifier/HOGDescriptor) khoi Python binding,
+script se bao loi "module 'cv2.dnn' has no attribute 'readNetFromCaffe'" neu
+cai ban nay. Raspberry Pi OS (apt) hien van cai OpenCV 4.x nen khong bi anh
+huong; con neu cai bang pip (kem ca tren may test) phai ghim phien ban < 5
+nhu huong dan ben duoi. Da test truc tiep voi opencv-python==4.10.0.84.
 
 ===========================================================================
 1) CAI DAT PHAN MEM
@@ -110,10 +111,14 @@ LED_PINS = [17, 27, 22, 5, 6]  # BCM numbering, dung dung MAX_LEDS phan tu
 DETECT_EVERY_N_FRAMES = 3  # bo bot khung hinh de do tai CPU tren Pi
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CASCADE_PATH = os.path.join(BASE_DIR, "haarcascade_fullbody.xml")
-CASCADE_SCALE_FACTOR = 1.05
-CASCADE_MIN_NEIGHBORS = 3
-CASCADE_MIN_SIZE = (40, 80)  # (w, h) toi thieu cua 1 nguoi trong khung, tinh bang px
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+PROTOTXT_PATH = os.path.join(MODEL_DIR, "MobileNetSSD_deploy.prototxt")
+CAFFEMODEL_PATH = os.path.join(MODEL_DIR, "MobileNetSSD_deploy.caffemodel")
+DNN_INPUT_SIZE = (300, 300)  # kich thuoc dau vao co dinh cua MobileNet-SSD
+DNN_SCALE_FACTOR = 0.007843  # = 1/127.5, chuan hoa pixel ve khoang [-1, 1]
+DNN_MEAN = 127.5
+PERSON_CLASS_ID = 15  # lop "person" trong 21 lop VOC ma model nay dung
+CONFIDENCE_THRESHOLD = 0.5  # bo qua ket qua co do tin cay thap hon
 
 assert len(LED_PINS) == MAX_LEDS, "LED_PINS phai co dung MAX_LEDS chan GPIO"
 
@@ -169,29 +174,45 @@ def update_leds(people_count):
 
 
 def build_detector():
-    if not hasattr(cv2, "CascadeClassifier"):
+    if not hasattr(cv2.dnn, "readNetFromCaffe"):
         print(
-            "LOI: cv2.CascadeClassifier khong ton tai - ban dang cai OpenCV 5.x,"
-            " ban nay da bo API nay. Chay: pip install \"opencv-python<5\""
+            "LOI: cv2.dnn.readNetFromCaffe khong ton tai - ban dang cai OpenCV"
+            " 5.x, ban nay da bo trinh doc model Caffe. Chay:"
+            " pip install \"opencv-python<5\""
             " (xem phan 1 CAI DAT PHAN MEM o dau file)."
         )
         sys.exit(1)
-    if not os.path.isfile(CASCADE_PATH):
-        print(f"LOI: khong tim thay {CASCADE_PATH}")
+    if not os.path.isfile(PROTOTXT_PATH) or not os.path.isfile(CAFFEMODEL_PATH):
+        print(f"LOI: khong tim thay model trong {MODEL_DIR}")
         sys.exit(1)
-    return cv2.CascadeClassifier(CASCADE_PATH)
+    return cv2.dnn.readNetFromCaffe(PROTOTXT_PATH, CAFFEMODEL_PATH)
 
 
-def detect_people(detector, frame):
+def detect_people(net, frame):
     """Tra ve danh sach hop (x, y, w, h) quanh nguoi phat hien duoc trong frame."""
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    boxes = detector.detectMultiScale(
-        gray,
-        scaleFactor=CASCADE_SCALE_FACTOR,
-        minNeighbors=CASCADE_MIN_NEIGHBORS,
-        minSize=CASCADE_MIN_SIZE,
+    h, w = frame.shape[:2]
+    blob = cv2.dnn.blobFromImage(
+        cv2.resize(frame, DNN_INPUT_SIZE),
+        DNN_SCALE_FACTOR,
+        DNN_INPUT_SIZE,
+        DNN_MEAN,
     )
-    return [tuple(box) for box in boxes]
+    net.setInput(blob)
+    detections = net.forward()
+
+    boxes = []
+    for i in range(detections.shape[2]):
+        confidence = float(detections[0, 0, i, 2])
+        class_id = int(detections[0, 0, i, 1])
+        if confidence < CONFIDENCE_THRESHOLD or class_id != PERSON_CLASS_ID:
+            continue
+
+        box = detections[0, 0, i, 3:7] * [w, h, w, h]
+        x1, y1, x2, y2 = box.astype(int)
+        x1, y1 = max(x1, 0), max(y1, 0)
+        x2, y2 = min(x2, w - 1), min(y2, h - 1)
+        boxes.append((x1, y1, x2 - x1, y2 - y1))
+    return boxes
 
 
 def main():
@@ -218,7 +239,7 @@ def main():
         GPIO.cleanup()
         sys.exit(1)
 
-    detector = build_detector()
+    net = build_detector()
     frame_idx = 0
     last_boxes = []
 
@@ -231,7 +252,7 @@ def main():
                 break
 
             if frame_idx % DETECT_EVERY_N_FRAMES == 0:
-                last_boxes = detect_people(detector, frame)
+                last_boxes = detect_people(net, frame)
             frame_idx += 1
 
             people_count = len(last_boxes)
