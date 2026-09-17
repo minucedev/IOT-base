@@ -30,7 +30,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # --- Cấu hình ---
 # Local: CAMERA_SOURCE = 0
 # Laptop server: CAMERA_SOURCE = "http://<LAPTOP_IP>:5000/video_feed"
-LAPTOP_CAM_URL = "http://192.168.1.10:5000/video_feed"  # <-- sửa IP laptop
+LAPTOP_CAM_URL = "http://10.70.66.91:5000/video_feed"  # <-- sửa IP laptop
 CAMERA_SOURCE = LAPTOP_CAM_URL  # đổi thành 0 nếu muốn dùng cam cắm trực tiếp vào Pi
 CAMERA_INDEX = 0  # giữ để tương thích cũ
 CAMERA_RESOLUTION = (640, 480)
