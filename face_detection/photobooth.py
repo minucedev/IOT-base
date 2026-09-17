@@ -6,7 +6,11 @@ import numpy as np
 import RPi.GPIO as GPIO
 
 # --- Cấu hình ---
-CAMERA_INDEX = 0
+# Local: CAMERA_SOURCE = 0
+# Laptop server: CAMERA_SOURCE = "http://<LAPTOP_IP>:5000/video_feed"
+LAPTOP_CAM_URL = "http://192.168.1.10:5000/video_feed"  # <-- sửa IP laptop
+CAMERA_SOURCE = LAPTOP_CAM_URL  # đổi thành 0 nếu muốn dùng cam cắm trực tiếp vào Pi
+CAMERA_INDEX = 0  # giữ để tương thích cũ
 CAMERA_RESOLUTION = (640, 480)
 DISPLAY_WINDOW_NAME = "Photobooth OpenCV - Raspberry Pi"
 SAVE_PREFIX = "./"
@@ -15,8 +19,8 @@ SAVE_PREFIX = "./"
 BUTTON_PIN = 24
 DEBOUNCE_TIME = 0.3
 
-# --- Các Hiệu ứng sẽ áp dụng ---
-EFFECTS_TO_APPLY = ["mustache", "glasses"]
+# --- Các Hiệu ứng sẽ áp dụng (mũ + kính + ria cùng lúc) ---
+EFFECTS_TO_APPLY = ["hat", "glasses", "mustache"]
 
 # --- Cấu hình đường dẫn và lớp phủ (Overlays) ---
 FACE_CASCADE_PATH = './haarcascade_frontalface_default.xml'
@@ -28,6 +32,16 @@ FACE_DETECTION_PARAMS = {
 }
 
 OVERLAYS = {
+    "hat": {
+        "name": "Mũ",
+        "image_path": "./hat.png",
+        # cascade_path = None -> neo theo đỉnh khuôn mặt, luôn hiện khi thấy mặt
+        "cascade_path": None,
+        "anchor": "face_top",
+        "scale_factor": 1.2,
+        "offset_x_ratio": 0,
+        "offset_y_ratio": 0.25
+    },
     "mustache": {
         "name": "Ria mép",
         "image_path": "./rau2.png", 
@@ -74,6 +88,11 @@ def initialize_resources():
             loaded_overlays[key] = {'rgb': img[:, :, :3], 'mask': img[:, :, 3]}
         else:
             loaded_overlays[key] = {'rgb': img, 'mask': np.ones((img.shape[0], img.shape[1]), dtype=np.uint8) * 255}
+
+        # Hiệu ứng neo theo mặt (vd: mũ) không cần cascade riêng
+        if not config.get('cascade_path'):
+            OVERLAYS[key]['cascade_loaded'] = True
+            continue
             
         cascade = cv2.CascadeClassifier(config['cascade_path'])
         if not cascade.empty():
@@ -174,25 +193,51 @@ def apply_multiple_overlays(frame, list_of_overlay_keys):
             target_x, target_y, target_w, target_h = 0, 0, 0, 0
             anchor_found = False
 
-            if anchor == 'nose' and 'nose' in detected_features:
-                nx, ny, nw, nh = detected_features['nose']
+            if anchor == 'face_top':
+                # Mũ: neo theo đỉnh khuôn mặt -> luôn hiện khi thấy mặt
                 target_w = int(w * scale)
                 target_h = int(target_w * (overlay_rgb.shape[0] / overlay_rgb.shape[1]))
-                target_x = x + nx + int(nw / 2) - int(target_w / 2) + int(target_w * offset_x_r)
-                target_y = y + ny + int(nh / 2) - int(target_h / 2) + int(target_h * offset_y_r)
+                target_x = x + int(w / 2) - int(target_w / 2) + int(target_w * offset_x_r)
+                target_y = y - target_h + int(h * offset_y_r)
                 anchor_found = True
+
+            elif anchor == 'nose':
+                if 'nose' in detected_features:
+                    nx, ny, nw, nh = detected_features['nose']
+                    target_w = int(w * scale)
+                    target_h = int(target_w * (overlay_rgb.shape[0] / overlay_rgb.shape[1]))
+                    target_x = x + nx + int(nw / 2) - int(target_w / 2) + int(target_w * offset_x_r)
+                    target_y = y + ny + int(nh / 2) - int(target_h / 2) + int(target_h * offset_y_r)
+                    anchor_found = True
+                else:
+                    # Fallback theo tỉ lệ mặt để ria luôn hiện cùng lúc
+                    target_w = int(w * scale)
+                    target_h = int(target_w * (overlay_rgb.shape[0] / overlay_rgb.shape[1]))
+                    target_x = x + int(w / 2) - int(target_w / 2) + int(target_w * offset_x_r)
+                    target_y = y + int(h * 0.65) - int(target_h / 2) + int(target_h * offset_y_r)
+                    anchor_found = True
                 
-            elif anchor == 'eyes_center' and 'eyes' in detected_features and len(detected_features['eyes']) == 2:
-                e1, e2 = detected_features['eyes']
-                ex1, ey1, ew1, eh1 = e1
-                ex2, ey2, ew2, eh2 = e2
-                center_x = x + int((ex1 + ex2 + ew2) / 2)
-                center_y = y + int((ey1 + ey2) / 2)
-                target_w = int(w * scale)
-                target_h = int(target_w * (overlay_rgb.shape[0] / overlay_rgb.shape[1]))
-                target_x = center_x - int(target_w / 2) + int(target_w * offset_x_r)
-                target_y = center_y - int(target_h / 2) + int(target_h * offset_y_r)
-                anchor_found = True
+            elif anchor == 'eyes_center':
+                if 'eyes' in detected_features and len(detected_features['eyes']) == 2:
+                    e1, e2 = detected_features['eyes']
+                    ex1, ey1, ew1, eh1 = e1
+                    ex2, ey2, ew2, eh2 = e2
+                    center_x = x + int((ex1 + ex2 + ew2) / 2)
+                    center_y = y + int((ey1 + ey2) / 2)
+                    target_w = int(w * scale)
+                    target_h = int(target_w * (overlay_rgb.shape[0] / overlay_rgb.shape[1]))
+                    target_x = center_x - int(target_w / 2) + int(target_w * offset_x_r)
+                    target_y = center_y - int(target_h / 2) + int(target_h * offset_y_r)
+                    anchor_found = True
+                else:
+                    # Fallback theo tỉ lệ mặt để kính luôn hiện cùng lúc
+                    center_x = x + int(w / 2)
+                    center_y = y + int(h * 0.35)
+                    target_w = int(w * scale)
+                    target_h = int(target_w * (overlay_rgb.shape[0] / overlay_rgb.shape[1]))
+                    target_x = center_x - int(target_w / 2) + int(target_w * offset_x_r)
+                    target_y = center_y - int(target_h / 2) + int(target_h * offset_y_r)
+                    anchor_found = True
 
             if anchor_found and target_w > 0 and target_h > 0:
                 current_overlay = cv2.resize(overlay_rgb, (target_w, target_h), interpolation=cv2.INTER_AREA)
@@ -208,67 +253,88 @@ initialize_resources()
 GPIO.setmode(GPIO.BCM)
 GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
-cap = cv2.VideoCapture(CAMERA_INDEX)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_RESOLUTION[0])
-cap.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_RESOLUTION[1])
+def open_camera(source):
+    print(f"Dang ket noi camera: {source}")
+    c = cv2.VideoCapture(source)
+    # Chỉ set resolution cho cam local, stream mạng thì server quyết định
+    if isinstance(source, int):
+        c.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_RESOLUTION[0])
+        c.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_RESOLUTION[1])
+    return c
+
+cap = open_camera(CAMERA_SOURCE)
 cv2.namedWindow(DISPLAY_WINDOW_NAME)
 
 # Các biến trạng thái nút bấm và hiển thị
 last_button_state = False
 button_press_time = 0.0
-display_processed = False
-display_end_time = 0.0
+saved_msg = ""
+saved_msg_end_time = 0.0
 
 print("Hệ thống đã sẵn sàng trên Raspberry Pi!")
+print(f" - Stream LUÔN gắn hiệu ứng {EFFECTS_TO_APPLY}.")
 print(f" - Nhấn nút vật lý (Chân GPIO {BUTTON_PIN}) hoặc phím 'c' để chụp.")
 print(" - Nhấn 'q' để thoát.")
 
 try:
+    fail_count = 0
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("Lỗi: Không thể đọc khung hình từ camera.")
-            time.sleep(0.5)
+            fail_count += 1
+            print(f"Lỗi: Không thể đọc khung hình từ camera ({CAMERA_SOURCE}). Lan {fail_count}")
+            # Stream mạng rớt -> thử kết nối lại sau vài lần lỗi
+            if fail_count >= 30:
+                print("Thu ket noi lai camera...")
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+                time.sleep(1.0)
+                cap = open_camera(CAMERA_SOURCE)
+                fail_count = 0
+            else:
+                time.sleep(0.1)
             continue
+        fail_count = 0
         
-        flipped_frame = cv2.flip(frame, 1)
+        # 1. LUÔN gắn hiệu ứng khi stream
+        processed_frame = apply_multiple_overlays(frame, EFFECTS_TO_APPLY)
+        display_frame = cv2.flip(processed_frame, 1)
+
         capture_triggered = False
         
-        # 1. Đọc tín hiệu từ nút bấm vật lý (GPIO)
+        # 2. Đọc tín hiệu từ nút bấm vật lý (GPIO)
         current_state = GPIO.input(BUTTON_PIN) == GPIO.HIGH
         if current_state and not last_button_state and (time.time() - button_press_time > DEBOUNCE_TIME):
             capture_triggered = True
             button_press_time = time.time()
         last_button_state = current_state
 
-        # 2. Đọc tín hiệu từ bàn phím (Phím 'c' hoặc 'q')
+        # 3. Đọc tín hiệu từ bàn phím (Phím 'c' hoặc 'q')
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'): 
             break
         elif key == ord('c'): 
             capture_triggered = True
 
-        # Xử lý khi có lệnh chụp
+        # Xử lý khi có lệnh chụp: chỉ lưu frame đang stream (đã có hiệu ứng)
         if capture_triggered:
-            print(f"\nĐã kích hoạt chụp! Áp dụng hiệu ứng...")
-            processed_frame = apply_multiple_overlays(frame, EFFECTS_TO_APPLY)
-            processed_frame = cv2.flip(processed_frame, 1) 
-            
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             effect_combo_name = "-".join(EFFECTS_TO_APPLY)
             filename = f"{SAVE_PREFIX}pi_{effect_combo_name}_{timestamp}.jpg"
-            cv2.imwrite(filename, processed_frame)
-            print(f"Đã lưu ảnh: {filename}")
+            cv2.imwrite(filename, display_frame)
+            print(f"\nĐã chụp và lưu ảnh: {filename}")
 
-            display_processed = True
-            display_end_time = time.time() + 3.0 # Hiển thị ảnh đã xử lý trong 3 giây
+            saved_msg = f"Da luu: {filename}"
+            saved_msg_end_time = time.time() + 2.0  # Hiển thị thông báo 2 giây
 
-        # Điều khiển hiển thị màn hình
-        if display_processed and time.time() < display_end_time:
-            display_frame = processed_frame
+        # Hiển thị thông báo "đã lưu" đè lên stream (không freeze stream)
+        if saved_msg and time.time() < saved_msg_end_time:
+            cv2.putText(display_frame, "Captured! " + saved_msg, (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2, cv2.LINE_AA)
         else:
-            display_frame = flipped_frame
-            display_processed = False
+            saved_msg = ""
 
         cv2.imshow(DISPLAY_WINDOW_NAME, display_frame)
 
