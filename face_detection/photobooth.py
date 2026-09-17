@@ -3,7 +3,29 @@ import time
 import sys
 import os
 import numpy as np
-import RPi.GPIO as GPIO
+
+# --- Chẩn đoán cv2 ngay khi import (bắt lỗi "no attribute CascadeClassifier") ---
+try:
+    print(f"cv2 version: {getattr(cv2, '__version__', 'unknown')} at {getattr(cv2, '__file__', 'unknown')}")
+except Exception as e:
+    print(f"LOI import cv2: {e}")
+if not hasattr(cv2, "CascadeClassifier"):
+    print("LOI: cv2 thieu CascadeClassifier.")
+    print(" -> Thuong do cai sai goi opencv (thieu objdetect) hoac bi file cv2.py che ten.")
+    print(" -> Fix tren Pi: sudo apt update && sudo apt install -y python3-opencv")
+    print("    hoac: pip uninstall -y opencv-python opencv-contrib-python opencv-python-headless")
+    print("          pip install opencv-python numpy")
+    print(" -> Kiem tra: khong dat ten file nao la cv2.py trong thu muc chay.")
+    sys.exit(1)
+
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    print("LOI: khong import duoc RPi.GPIO (chay tren laptop?). Chi chay photobooth.py tren Raspberry Pi.")
+    sys.exit(1)
+
+# Đường dẫn tuyệt đối theo file script (tránh lỗi chạy khác cwd)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # --- Cấu hình ---
 # Local: CAMERA_SOURCE = 0
@@ -23,7 +45,7 @@ DEBOUNCE_TIME = 0.3
 EFFECTS_TO_APPLY = ["hat", "glasses", "mustache"]
 
 # --- Cấu hình đường dẫn và lớp phủ (Overlays) ---
-FACE_CASCADE_PATH = './haarcascade_frontalface_default.xml'
+FACE_CASCADE_PATH = os.path.join(BASE_DIR, 'haarcascade_frontalface_default.xml')
 FACE_DETECTION_PARAMS = {
     "scaleFactor": 1.1,
     "minNeighbors": 5,
@@ -34,7 +56,7 @@ FACE_DETECTION_PARAMS = {
 OVERLAYS = {
     "hat": {
         "name": "Mũ",
-        "image_path": "./hat.png",
+        "image_path": os.path.join(BASE_DIR, "hat.png"),
         # cascade_path = None -> neo theo đỉnh khuôn mặt, luôn hiện khi thấy mặt
         "cascade_path": None,
         "anchor": "face_top",
@@ -44,8 +66,8 @@ OVERLAYS = {
     },
     "mustache": {
         "name": "Ria mép",
-        "image_path": "./rau2.png", 
-        "cascade_path": "./haarcascade_mcs_nose.xml",
+        "image_path": os.path.join(BASE_DIR, "rau2.png"),
+        "cascade_path": os.path.join(BASE_DIR, "haarcascade_mcs_nose.xml"),
         "anchor": "nose",
         "scale_factor": 0.6,
         "offset_x_ratio": 0,   
@@ -53,8 +75,8 @@ OVERLAYS = {
     },
     "glasses": {
         "name": "Kính mắt",
-        "image_path": "./sunglasses.png",
-        "cascade_path": "./haarcascade_eye.xml",
+        "image_path": os.path.join(BASE_DIR, "sunglasses.png"),
+        "cascade_path": os.path.join(BASE_DIR, "haarcascade_eye.xml"),
         "anchor": "eyes_center",
         "scale_factor": 0.9,
         "offset_x_ratio": 0,   
@@ -67,10 +89,13 @@ loaded_overlays = {}
 
 def initialize_resources():
     print("Đang tải các mô hình nhận diện và hình ảnh lớp phủ...")
-    loaded_cascades['face'] = cv2.CascadeClassifier(FACE_CASCADE_PATH)
-    if loaded_cascades['face'].empty():
+    print(f"Face cascade path: {FACE_CASCADE_PATH} (exists={os.path.exists(FACE_CASCADE_PATH)})")
+    face_cc = cv2.CascadeClassifier(FACE_CASCADE_PATH)
+    if face_cc.empty():
         print(f"LỖI: Không thể tải face cascade tại {FACE_CASCADE_PATH}")
+        print(" -> Kiểm tra file .xml có nằm cùng thư mục photobooth.py không.")
         sys.exit(1)
+    loaded_cascades['face'] = face_cc
 
     for key, config in OVERLAYS.items():
         if not os.path.exists(config['image_path']):
