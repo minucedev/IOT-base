@@ -61,9 +61,25 @@ So do 1 LED:
 Neu chi co it hon 5 LED, cu cam theo thu tu tu LED 1 tro di; cac LED con lai
 trong LED_PINS se don gian khong duoc dung toi.
 
-Camera: dung webcam USB thuong hoac Pi Camera Module qua adapter USB/CSI-to-
-USB; script mo camera bang cv2.VideoCapture(CAMERA_INDEX) nen camera nao duoc
-Linux nhan la /dev/video0 (index 0) deu dung duoc.
+Camera: co 2 cach, chinh bang bien CAMERA_SOURCE ben duoi.
+
+  Cach A - Camera gan truc tiep vao may chay script nay (USB webcam hoac
+  Pi Camera Module qua adapter USB/CSI-to-USB):
+      CAMERA_SOURCE = 0   # hoac 1, 2... neu may co nhieu camera
+
+  Cach B - Camera nam tren mot may khac (vi du laptop co webcam, con
+  Raspberry Pi chi co LED/GPIO khong gan camera) - giong y het cach lay
+  IP trong face_detection/laptop_cam_server.py:
+      1. Tren may CO CAMERA (laptop), chay:
+             python laptop_cam_server.py
+         Console se in ra dong dang:
+             Stream : http://<LAPTOP_IP>:5000/video_feed
+         <LAPTOP_IP> chinh la dia chi IP LAN cua may do (vi du 192.168.1.10),
+         no tu dong lay bang ham get_lan_ip(), khong phai tu go tay.
+      2. Tren Raspberry Pi (may chay people_count_led.py, dieu khien LED),
+         sua bien CAMERA_SOURCE ben duoi thanh URL vua thay, vi du:
+             CAMERA_SOURCE = "http://192.168.1.10:5000/video_feed"
+      3. Dam bao Pi va laptop cung mot mang LAN/Wi-Fi thi moi ket noi duoc.
 
 ===========================================================================
 3) CHAY
@@ -81,7 +97,12 @@ import sys
 import cv2
 
 # --- Cau hinh ---
-CAMERA_INDEX = 0
+# So nguyen (0, 1, 2...) = camera gan truc tiep vao may nay.
+# Chuoi URL = doc stream MJPEG tu may khac, vi du camera tren laptop:
+#   CAMERA_SOURCE = "http://192.168.1.10:5000/video_feed"
+# (chay laptop_cam_server.py tren laptop truoc, lay IP no in ra - xem phan
+# 2 "NOI DAY..." o tren, muc Camera - Cach B)
+CAMERA_SOURCE = "http://10.70.66.91:5000/video_feed"
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 MAX_LEDS = 5
@@ -176,12 +197,24 @@ def detect_people(detector, frame):
 def main():
     setup_leds()
 
-    cap = cv2.VideoCapture(CAMERA_INDEX)
+    cap = cv2.VideoCapture(CAMERA_SOURCE)
+    if isinstance(CAMERA_SOURCE, int):
+        # Tren Windows, CAP_DSHOW mo camera local nhanh va on dinh hon;
+        # khong ap dung khi CAMERA_SOURCE la URL stream tu may khac.
+        try:
+            cap_dshow = cv2.VideoCapture(CAMERA_SOURCE, cv2.CAP_DSHOW)
+            if cap_dshow.isOpened():
+                cap.release()
+                cap = cap_dshow
+            else:
+                cap_dshow.release()
+        except Exception:
+            pass
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT)
 
     if not cap.isOpened():
-        print(f"LOI: khong mo duoc camera index {CAMERA_INDEX}")
+        print(f"LOI: khong mo duoc camera (CAMERA_SOURCE = {CAMERA_SOURCE!r})")
         GPIO.cleanup()
         sys.exit(1)
 
