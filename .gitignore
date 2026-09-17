@@ -3,3 +3,4 @@ main.py
 pyproject.toml
 .venv
 uv.lock
+face_detection/captures/
