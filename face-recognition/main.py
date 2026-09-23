@@ -7,6 +7,8 @@ import threading
 import time
 from pathlib import Path
 
+import cv2
+import numpy as np
 from flask import Flask, Response, jsonify, render_template, request, send_file
 
 from camera import Camera, CAMERA_URL
@@ -65,9 +67,18 @@ def index():
     return render_template("index.html")
 
 
+def make_placeholder_frame(title: str, subtitle: str) -> bytes:
+    """Tạo khung hình thông báo tạm thời khi camera chưa có frame."""
+    canvas = np.zeros((240, 320, 3), dtype=np.uint8)
+    canvas[:] = (35, 30, 25)
+    cv2.putText(canvas, title, (15, 105), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 215, 255), 1, cv2.LINE_AA)
+    cv2.putText(canvas, subtitle, (15, 135), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1, cv2.LINE_AA)
+    ok, buf = cv2.imencode(".jpg", canvas)
+    return buf.tobytes() if ok else b""
+
+
 @app.get("/video")
 def video():
-    # Tránh gửi cùng frame nhiều lần — chỉ yield khi có frame mới
     def frames():
         last_frame: bytes | None = None
         while not _stopped:
@@ -75,7 +86,16 @@ def video():
                 time.sleep(0.1)
                 continue
             image, _, _, _, _ = engine.latest()
-            if image is None or image is last_frame:
+
+            # Nếu chưa có frame từ laptop, phát frame thông báo trạng thái
+            if image is None:
+                sub = camera.url if len(camera.url) <= 35 else (camera.url[:32] + "...")
+                ph = make_placeholder_frame("Connecting to laptop cam...", sub)
+                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + ph + b"\r\n"
+                time.sleep(0.5)
+                continue
+
+            if image is last_frame:
                 time.sleep(0.033)
                 continue
             last_frame = image
@@ -89,20 +109,23 @@ def video():
 def status():
     if engine is None:
         return jsonify({
-            "camera": "lỗi",
+            "camera": "chưa sẵn sàng",
             "name": "Chưa sẵn sàng",
             "similarity": 0.0,
             "fps_infer": 0.0,
             "fps_capture": 0.0,
+            "brightness": 0.0,
         })
     _, name, similarity, fps_infer, fps_capture = engine.latest()
+    cam_status = "đang chạy" if camera.is_running else (camera.error or "chưa kết nối")
     return jsonify({
-        "camera": "đang chạy" if camera.is_running else "lỗi",
+        "camera": cam_status,
         "name": name,
         "similarity": similarity,
         "fps_infer": fps_infer,
         "fps_capture": fps_capture,
         "stream_url": camera.url,
+        "brightness": round(camera.latest_brightness, 1),
     })
 
 
