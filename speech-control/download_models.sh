@@ -33,9 +33,8 @@ download \
   "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad.onnx" \
   "models/silero_vad.onnx"
 
-# 2. Config & Tokens
+# 2. Config (chứa bảng tokens cho Zipformer)
 download "${HF_BASE}/config.json?download=true" "${MODEL_DIR}/config.json"
-download "${HF_BASE}/tokens.txt?download=true" "${MODEL_DIR}/tokens.txt"
 
 # 3. Zipformer ONNX (Encoder, Decoder, Joiner)
 download "${HF_BASE}/encoder-${SUFFIX}?download=true" "${MODEL_DIR}/encoder-${SUFFIX}"

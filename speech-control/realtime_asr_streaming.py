@@ -165,9 +165,9 @@ def find_model_files(model_dir: Path, chunk_size: int) -> ModelFiles:
     decoders = sorted(model_dir.glob(f"decoder-*{pattern_suffix}"))
     joiners = sorted(model_dir.glob(f"joiner-*{pattern_suffix}"))
     tokens = model_dir / "tokens.txt"
-
     if not tokens.is_file():
-        tokens = DEFAULT_MODEL_DIR / "tokens.txt"
+        # Repo hynt/Zipformer đóng gói bảng token trực tiếp trong file config.json
+        tokens = model_dir / "config.json"
 
     def pick(matches: list[Path], role: str) -> Path:
         if not matches:
