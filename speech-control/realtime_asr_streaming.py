@@ -193,26 +193,27 @@ def create_recognizer(sherpa_onnx: Any, files: ModelFiles, args: argparse.Namesp
         encoder=str(files.encoder),
         decoder=str(files.decoder),
         joiner=str(files.joiner),
-        num_threads=args.threads,
+        num_threads=getattr(args, "num_threads", getattr(args, "threads", 2)),
         sample_rate=SAMPLE_RATE,
         feature_dim=80,
-        decoding_method="greedy_search",
+        decoding_method=getattr(args, "decoding_method", "modified_beam_search"),
         max_active_paths=args.max_active_paths,
         blank_penalty=args.blank_penalty,
+        provider=getattr(args, "provider", "cpu"),
+        enable_endpoint_detection=False,
     )
 
 
 def create_vad(sherpa_onnx: Any, args: argparse.Namespace) -> tuple[Any, int]:
     require_real_file(args.vad_model, "VAD model")
-    config = sherpa_onnx.SileroVadModelConfig(
-        model=str(args.vad_model),
-        threshold=args.vad_threshold,
-        min_silence_duration=args.min_silence,
-        min_speech_duration=args.min_speech,
-        window_size=512,
-        max_speech_duration=args.max_speech,
-    )
-    window_size = config.window_size
+    config = sherpa_onnx.VadModelConfig()
+    config.silero_vad.model = str(args.vad_model)
+    config.silero_vad.threshold = args.vad_threshold
+    config.silero_vad.min_silence_duration = args.min_silence
+    config.silero_vad.min_speech_duration = args.min_speech
+    config.silero_vad.max_speech_duration = args.max_speech
+    config.sample_rate = SAMPLE_RATE
+    window_size = int(config.silero_vad.window_size)
     detector = sherpa_onnx.VoiceActivityDetector(
         config,
         buffer_size_in_seconds=max(30, int(args.max_speech) + 5),
@@ -358,16 +359,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR, help="Thư mục chứa model Zipformer")
     parser.add_argument("--vad-model", type=Path, default=DEFAULT_VAD_MODEL, help="Đường dẫn file silero_vad.onnx")
     parser.add_argument("--chunk-size", type=int, default=32, choices=(16, 32, 64), help="Kích thước chunk Zipformer")
-    parser.add_argument("--threads", type=int, default=2, help="Số luồng CPU cho sherpa-onnx")
-    parser.add_argument("--max-active-paths", type=int, default=4, help="Beam paths")
-    parser.add_argument("--blank-penalty", type=float, default=1.0, help="Blank penalty")
-    parser.add_argument("--vad-threshold", type=float, default=0.5, help="Ngưỡng nhạy VAD")
-    parser.add_argument("--min-speech", type=float, default=0.2, help="Độ dài tối thiểu tiếng nói (s)")
-    parser.add_argument("--min-silence", type=float, default=0.45, help="Độ dài khoảng lặng để ngắt câu (s)")
-    parser.add_argument("--max-speech", type=float, default=8.0, help="Độ dài tối đa 1 câu nói (s)")
-    parser.add_argument("--pre-roll", type=float, default=0.35, help="Bộ đệm âm thanh trước khi VAD kích hoạt (s)")
-    parser.add_argument("--partial-interval", type=float, default=0.15, help="Tần suất cập nhật kết quả từng phần (s)")
-    parser.add_argument("--tail-padding", type=float, default=0.2, help="Đệm số 0 sau khi dứt câu (s)")
+    parser.add_argument("--num-threads", "--threads", dest="num_threads", type=int, default=2, help="Số luồng CPU cho sherpa-onnx")
+    parser.add_argument("--provider", default="cpu", choices=("cpu", "cuda", "coreml"), help="ONNX execution provider")
+    parser.add_argument("--decoding-method", default="modified_beam_search", choices=("greedy_search", "modified_beam_search"), help="Thuật toán giải mã ASR")
+    parser.add_argument("--max-active-paths", type=int, default=15, help="Beam paths")
+    parser.add_argument("--blank-penalty", type=float, default=0.25, help="Blank penalty")
+    parser.add_argument("--vad-threshold", type=float, default=0.35, help="Ngưỡng nhạy VAD")
+    parser.add_argument("--min-speech", type=float, default=0.12, help="Độ dài tối thiểu tiếng nói (s)")
+    parser.add_argument("--min-silence", type=float, default=0.8, help="Độ dài khoảng lặng để ngắt câu (s)")
+    parser.add_argument("--max-speech", type=float, default=20.0, help="Độ dài tối đa 1 câu nói (s)")
+    parser.add_argument("--pre-roll", type=float, default=0.5, help="Bộ đệm âm thanh trước khi VAD kích hoạt (s)")
+    parser.add_argument("--partial-interval", type=float, default=0.25, help="Tần suất cập nhật kết quả từng phần (s)")
+    parser.add_argument("--tail-padding", type=float, default=0.30, help="Đệm số 0 sau khi dứt câu (s)")
     parser.add_argument("--mock", action="store_true", help="Chạy chế độ giả lập phần cứng (không cần chân GPIO thật)")
     return parser.parse_args()
 
