@@ -46,11 +46,6 @@ python3 speech_control.py
 # Hoặc: ./run.sh
 ```
 
-*(Nếu muốn ép chạy chế độ mô phỏng không cần cắm phần cứng thật, thêm cờ `--mock`:)*
-```bash
-python3 speech_control.py --mock
-```
-
 ---
 
 ## 4. Các khẩu lệnh được hỗ trợ

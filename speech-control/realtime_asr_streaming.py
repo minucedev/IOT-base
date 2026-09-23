@@ -371,7 +371,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--pre-roll", type=float, default=0.5, help="Bộ đệm âm thanh trước khi VAD kích hoạt (s)")
     parser.add_argument("--partial-interval", type=float, default=0.25, help="Tần suất cập nhật kết quả từng phần (s)")
     parser.add_argument("--tail-padding", type=float, default=0.30, help="Đệm số 0 sau khi dứt câu (s)")
-    parser.add_argument("--mock", action="store_true", help="Chạy chế độ giả lập phần cứng (không cần chân GPIO thật)")
     return parser.parse_args()
 
 

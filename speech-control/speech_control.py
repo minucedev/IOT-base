@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Điều khiển thiết bị nhà thông minh bằng giọng nói tiếng Việt.
+"""Điều khiển thiết bị nhà thông minh bằng giọng nói tiếng Việt trên Raspberry Pi.
 
 Nhận âm thanh stream từ Laptop Microphone qua TCP Socket,
-nhận diện khẩu lệnh (bật/tắt đèn, bật/tắt quạt) và điều khiển qua chân GPIO.
-Hỗ trợ tự động chuyển sang Mock Hardware nếu không có phần cứng thật.
+nhận diện khẩu lệnh (bật/tắt đèn, bật/tắt quạt) và điều khiển trực tiếp qua chân GPIO.
 """
 
 from __future__ import annotations
@@ -13,6 +12,8 @@ import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+from gpiozero import LED, OutputDevice, PWMOutputDevice
 
 import realtime_asr_streaming as asr
 from audio_client import stream_audio_from_laptop, LAPTOP_IP, AUDIO_PORT
@@ -54,19 +55,18 @@ def hr(width: int = 56) -> str:
 
 
 # ============================================================
-# HARDWARE CONTROLLERS (REAL & MOCK)
+# HARDWARE CONTROLLER (GPIO)
 # ============================================================
 class HardwareController:
-    """Điều khiển phần cứng thật qua thư viện gpiozero."""
+    """Điều khiển trực tiếp phần cứng qua thư viện gpiozero."""
 
     def __init__(self) -> None:
-        from gpiozero import LED, OutputDevice, PWMOutputDevice
-
         self.light = LED(LIGHT_PIN, active_high=True, initial_value=False)
         self.motor_in1 = OutputDevice(MOTOR_IN1_PIN, active_high=True, initial_value=False)
         self.motor_in2 = OutputDevice(MOTOR_IN2_PIN, active_high=True, initial_value=False)
         self.motor_ena = PWMOutputDevice(MOTOR_ENA_PIN, active_high=True, initial_value=0, frequency=1000)
         self._closed = False
+        print(color("[+] Khởi tạo GPIO thành công (Đèn: GPIO17, Quạt: GPIO13,23,24).", C.GREEN))
 
     def turn_light_on(self) -> None:
         self.light.on()
@@ -101,57 +101,6 @@ class HardwareController:
         self.motor_in1.close()
         self.motor_in2.close()
         self.motor_ena.close()
-
-
-class MockHardwareController:
-    """Giả lập phần cứng khi chạy thử trên máy tính hoặc chưa cắm dây GPIO."""
-
-    def __init__(self) -> None:
-        self.light_state = False
-        self.fan_state = False
-        self.fan_speed = 0.0
-
-    def turn_light_on(self) -> None:
-        self.light_state = True
-        print(color("  [MOCK HW] 💡 ĐÈN: ĐÃ BẬT", C.BRIGHT_GREEN, C.BOLD))
-
-    def turn_light_off(self) -> None:
-        self.light_state = False
-        print(color("  [MOCK HW] 💡 ĐÈN: ĐÃ TẮT", C.RED, C.BOLD))
-
-    def turn_fan_on(self, speed: float = 1.0) -> None:
-        self.fan_state = True
-        self.fan_speed = speed
-        print(color(f"  [MOCK HW] 🌀 QUẠT: ĐÃ BẬT ({int(speed * 100)}%)", C.BRIGHT_GREEN, C.BOLD))
-
-    def turn_fan_off(self) -> None:
-        self.fan_state = False
-        self.fan_speed = 0.0
-        print(color("  [MOCK HW] 🌀 QUẠT: ĐÃ TẮT", C.RED, C.BOLD))
-
-    def get_light_state(self) -> bool:
-        return self.light_state
-
-    def get_fan_state(self) -> bool:
-        return self.fan_state
-
-    def cleanup(self) -> None:
-        pass
-
-
-def create_controller(force_mock: bool = False) -> tuple[Any, bool]:
-    """Tự động phát hiện và tạo controller phù hợp."""
-    if force_mock:
-        print(color("[*] Đang sử dụng Mock Hardware Controller (--mock).", C.YELLOW))
-        return MockHardwareController(), True
-
-    try:
-        controller = HardwareController()
-        print(color("[+] Khởi tạo GPIO Controller thành công (chân GPIO thật).", C.GREEN))
-        return controller, False
-    except Exception as exc:
-        print(color(f"[!] Không thể mở GPIO ({exc}). Tự động chuyển sang Mock Hardware.", C.YELLOW))
-        return MockHardwareController(), True
 
 
 # ============================================================
@@ -228,8 +177,8 @@ def parse_commands(text: str) -> list[Command]:
     return results
 
 
-def execute_command(cmd: Command, hw: Any) -> None:
-    """Thực thi lệnh lên phần cứng."""
+def execute_command(cmd: Command, hw: HardwareController) -> None:
+    """Thực thi lệnh lên phần cứng GPIO."""
     icon = DEVICE_ICONS.get(cmd.device, "⚙️")
     dev_name = DEVICE_LABELS.get(cmd.device, cmd.device.upper())
     act_name = ACTION_LABELS.get(cmd.action, cmd.action.upper())
@@ -248,12 +197,12 @@ def execute_command(cmd: Command, hw: Any) -> None:
             hw.turn_fan_off()
 
 
-def print_banner(host: str, port: int, is_mock: bool) -> None:
+def print_banner(host: str, port: int) -> None:
     print("=" * 60)
     print(color("  🎙️  VIETNAMESE SPEECH SMART HOME CONTROL", C.CYAN, C.BOLD))
     print("=" * 60)
     print(f" Nguồn Mic Laptop : {host}:{port} (TCP PCM 16kHz)")
-    print(f" Chế độ Hardware  : {'MÔ PHỎNG (MOCK)' if is_mock else 'GPIO THẬT (Light: 17, Fan: 13,23,24)'}")
+    print(f" Phần cứng GPIO   : Đèn (GPIO 17), Quạt (GPIO 13, 23, 24)")
     print(hr(60))
     print(" Các khẩu lệnh được hỗ trợ:")
     print("   💡 'bật đèn'   / 'tắt đèn'   (hoặc 'mở đèn' / 'đóng đèn')")
@@ -264,9 +213,9 @@ def print_banner(host: str, port: int, is_mock: bool) -> None:
 
 def main() -> None:
     args = asr.parse_args()
-    hw, is_mock = create_controller(force_mock=args.mock)
+    hw = HardwareController()
 
-    print_banner(args.laptop_ip, args.audio_port, is_mock)
+    print_banner(args.laptop_ip, args.audio_port)
 
     np, sherpa_onnx = asr.import_runtime()
     files = asr.find_model_files(args.model_dir, args.chunk_size)
