@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Face Recognition Demo</title>
+  <style>
+    :root { font-family: system-ui, sans-serif; color: #17324d; background: #e9f3f5; }
+    body { max-width: 960px; margin: 0 auto; padding: 24px; }
+    h1 { margin-top: 0; }
+    h3 { margin: 0 0 10px; font-size: 1rem; color: #17324d; }
+
+    /* Layout trên */
+    .top-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; align-items: start; }
+
+    /* Layout dưới */
+    .bottom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+
+    .panel { background: white; border: 1px solid #c9dfe1; border-radius: 8px;
+             padding: 16px; box-shadow: 0 4px 18px #17324d12; }
+
+    img { display: block; width: 100%; background: #10232c; border-radius: 6px;
+          aspect-ratio: 4 / 3; object-fit: contain; }
+
+    label, input { display: block; width: 100%; box-sizing: border-box; }
+    input { margin: 8px 0 12px; padding: 10px; border: 1px solid #9bbabd;
+            border-radius: 4px; font-size: 1rem; }
+
+    button.primary { display: block; width: 100%; padding: 10px; border: 0;
+                     border-radius: 4px; background: #d86b3d; color: white;
+                     font-size: 1rem; cursor: pointer; }
+    button.primary:disabled { opacity: .6; cursor: wait; }
+
+    button.small { padding: 3px 8px; border: 0; border-radius: 4px;
+                   background: #c0392b; color: white; font-size: 0.78rem;
+                   cursor: pointer; }
+    button.small-gray { padding: 3px 8px; border: 0; border-radius: 4px;
+                        background: #7f8c8d; color: white; font-size: 0.78rem;
+                        cursor: pointer; margin-bottom: 10px; }
+
+    .status { margin: 0 0 12px; font-weight: 600; }
+    .result { font-size: 1.3rem; margin: 12px 0 12px; }
+    .fps-row { display: flex; gap: 10px; margin: 0 0 16px; }
+    .fps-box { flex: 1; background: #e9f3f5; border-radius: 6px; padding: 8px 10px; text-align: center; }
+    .fps-box .fps-label { font-size: 0.72rem; color: #555; display: block; margin-bottom: 2px; }
+    .fps-box .fps-value { font-size: 1.2rem; font-weight: 700; color: #17324d; }
+    .fps-box.good .fps-value { color: #1a8a4a; }
+    .fps-box.warn .fps-value { color: #d86b3d; }
+    .message { min-height: 1.4em; margin-top: 12px; font-size: 0.9rem; }
+
+    /* Danh sách người */
+    #persons { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }
+    #persons li { display: flex; justify-content: space-between; align-items: center;
+                  padding: 8px 0; border-bottom: 1px solid #e9f3f5; font-size: 0.88rem; }
+    #persons li:last-child { border-bottom: none; }
+    .badge { background: #e9f3f5; padding: 2px 6px; border-radius: 4px;
+             font-size: 0.75rem; color: #555; margin-right: 6px; }
+    .reg-time { font-size: 0.72rem; color: #888; display: block; margin-top: 2px; }
+
+    /* Bảng log */
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th { text-align: left; padding: 4px 6px; border-bottom: 2px solid #c9dfe1;
+         color: #555; font-weight: 600; }
+    td { padding: 4px 6px; border-bottom: 1px solid #e9f3f5; }
+    tbody { max-height: 200px; display: block; overflow-y: auto; }
+    thead, tbody tr { display: table; width: 100%; table-layout: fixed; }
+    .log-wrap { max-height: 220px; overflow-y: auto; }
+
+    @media (max-width: 700px) {
+      .top-grid, .bottom-grid { grid-template-columns: 1fr; }
+      body { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+  <h1>🎥 Face Recognition Demo</h1>
+
+  <!-- Hàng trên: video + form đăng ký -->
+  <div class="top-grid">
+    <section class="panel">
+      <img src="/video" alt="Luồng camera trực tiếp">
+    </section>
+
+    <section class="panel">
+      <p class="status">Camera: <span id="camera">đang kiểm tra...</span></p>
+      <p class="result">Nhận diện: <strong id="name">Chưa nhận diện</strong></p>
+
+      <div class="fps-row">
+        <div class="fps-box" id="fps-capture-box">
+          <span class="fps-label">Luồng hiển thị</span>
+          <span class="fps-value" id="fps-capture">--</span>
+          <span class="fps-label">FPS</span>
+        </div>
+        <div class="fps-box" id="fps-infer-box">
+          <span class="fps-label">Nhận diện</span>
+          <span class="fps-value" id="fps-infer">--</span>
+          <span class="fps-label">FPS</span>
+        </div>
+      </div>
+
+      <form id="register-form">
+        <label for="person-name">Tên người đăng ký</label>
+        <input id="person-name" name="name" required maxlength="80" autocomplete="off"
+               placeholder="Nhập tên rồi nhìn vào camera">
+        <button class="primary" id="register-button" type="submit">
+          📸 Đăng ký khuôn mặt
+        </button>
+      </form>
+      <p class="message" id="message" role="status"></p>
+    </section>
+  </div>
+
+  <!-- Hàng dưới: danh sách người + log nhận diện -->
+  <div class="bottom-grid">
+
+    <!-- Danh sách người đã đăng ký -->
+    <section class="panel">
+      <h3>👤 Người đã đăng ký</h3>
+      <ul id="persons">
+        <li style="color:#999">Đang tải...</li>
+      </ul>
+    </section>
+
+    <!-- Lịch sử nhận diện -->
+    <section class="panel">
+      <h3>📋 Lịch sử nhận diện</h3>
+      <button class="small-gray" id="clear-logs" type="button">🗑 Xóa log</button>
+      <div class="log-wrap">
+        <table>
+          <thead>
+            <tr><th>Tên</th><th>Độ khớp</th><th>Thời gian</th></tr>
+          </thead>
+          <tbody id="logs">
+            <tr><td colspan="3" style="color:#999">Đang tải...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    const cameraEl        = document.querySelector('#camera');
+    const nameEl          = document.querySelector('#name');
+    const fpsCaptureEl    = document.querySelector('#fps-capture');
+    const fpsInferEl      = document.querySelector('#fps-infer');
+    const fpsCaptureBox   = document.querySelector('#fps-capture-box');
+    const fpsInferBox     = document.querySelector('#fps-infer-box');
+
+    function setFpsBox(box, valueEl, fps) {
+      const v = fps > 0 ? fps.toFixed(1) : '--';
+      valueEl.textContent = v;
+      box.classList.remove('good', 'warn');
+      if (fps >= 10) box.classList.add('good');
+      else if (fps > 0) box.classList.add('warn');
+    }
+    const messageEl  = document.querySelector('#message');
+    const form       = document.querySelector('#register-form');
+    const button     = document.querySelector('#register-button');
+    const personsList = document.querySelector('#persons');
+    const logsBody    = document.querySelector('#logs');
+
+    /* ── Status poll ── */
+    async function refreshStatus() {
+      try {
+        const data = await fetch('/status').then(r => r.json());
+        cameraEl.textContent = data.camera;
+        nameEl.textContent   = data.name || 'Chưa nhận diện';
+        setFpsBox(fpsCaptureBox, fpsCaptureEl, data.fps_capture || 0);
+        setFpsBox(fpsInferBox,   fpsInferEl,   data.fps_infer   || 0);
+      } catch {
+        cameraEl.textContent = 'lỗi kết nối';
+      }
+    }
+
+    /* ── Đăng ký ── */
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      button.disabled = true;
+      messageEl.textContent = '⏳ Đang chụp khuôn mặt (tối đa 8 giây)...';
+      try {
+        const res  = await fetch('/register', { method: 'POST', body: new FormData(form) });
+        const data = await res.json();
+        messageEl.textContent = (data.ok ? '✅ ' : '❌ ') + data.message;
+        if (data.ok) { form.reset(); refreshData(); }
+      } catch {
+        messageEl.textContent = '❌ Không thể kết nối server';
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    /* ── Xóa người dùng ── */
+    async function deletePerson(id, name) {
+      if (!confirm(`Xóa "${name}" khỏi hệ thống?`)) return;
+      try {
+        const res  = await fetch(`/api/persons/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.ok) refreshData();
+        else alert('Xóa thất bại: ' + (data.message || ''));
+      } catch {
+        alert('Lỗi kết nối khi xóa');
+      }
+    }
+
+    /* ── Refresh danh sách người + log ── */
+    async function refreshData() {
+      try {
+        const [pRes, lRes, rRes] = await Promise.all([
+          fetch('/api/persons'),
+          fetch('/api/recognition-logs?limit=20'),
+          fetch('/api/registration-photos'),
+        ]);
+        const persons = await pRes.json();
+        const logs    = await lRes.json();
+        const regPhotos = await rRes.json();
+
+        // Map person_id -> thời gian đăng ký gần nhất
+        const regTimeMap = {};
+        for (const r of regPhotos) {
+          if (!regTimeMap[r.person_id]) {
+            regTimeMap[r.person_id] = r.registered_at;
+          }
+        }
+
+        /* Danh sách người */
+        if (persons.length === 0) {
+          personsList.innerHTML = '<li style="color:#999">Chưa có người đăng ký</li>';
+        } else {
+          personsList.innerHTML = persons.map(p => {
+            const regAt = regTimeMap[p.id]
+              ? `<span class="reg-time">Đăng ký: ${escapeHtml(regTimeMap[p.id])}</span>`
+              : '';
+            return `
+              <li>
+                <span>
+                  <strong>${escapeHtml(p.name)}</strong>
+                  <span class="badge">${p.embedding_count} mẫu</span>
+                  ${regAt}
+                </span>
+                <button class="small" onclick="deletePerson(${p.id}, '${escapeHtml(p.name)}')">Xóa</button>
+              </li>
+            `;
+          }).join('');
+        }
+
+        /* Bảng log */
+        if (logs.length === 0) {
+          logsBody.innerHTML = '<tr><td colspan="3" style="color:#999">Chưa có log</td></tr>';
+        } else {
+          logsBody.innerHTML = logs.map(l => `
+            <tr>
+              <td>${escapeHtml(l.person_name)}</td>
+              <td>${Number(l.similarity).toFixed(3)}</td>
+              <td>${escapeHtml(l.detected_at)}</td>
+            </tr>
+          `).join('');
+        }
+      } catch (err) { console.error('refreshData:', err); }
+    }
+
+    /* ── Xóa log ── */
+    document.querySelector('#clear-logs').addEventListener('click', async () => {
+      await fetch('/api/recognition-logs', { method: 'DELETE' });
+      refreshData();
+    });
+
+    /* ── Helpers ── */
+    function escapeHtml(v) {
+      return String(v).replace(/[&<>'"]/g,
+        c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+    }
+
+    /* ── Khởi động ── */
+    refreshStatus();
+    refreshData();
+    setInterval(refreshStatus, 1000);
+    setInterval(refreshData,   3000);
+  </script>
+</body>
+</html>

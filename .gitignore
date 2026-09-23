@@ -16,7 +16,6 @@ venv.bak/
 # Package managers & Build artifacts
 uv.lock
 pyproject.toml
-main.py
 build/
 develop-eggs/
 dist/
