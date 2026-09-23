@@ -1,6 +1,74 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 .python-version
-main.py
-pyproject.toml
-.venv
+
+# Package managers & Build artifacts
 uv.lock
+pyproject.toml
+main.py
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDEs and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+
+# Camera / Photobooth captures & temp media
+**/captures/
+**/output/
+**/recordings/
+**/temp/
 face_detection/captures/
+*.avi
+*.mp4
+
+# Machine Learning Large Model Weights & Checkpoints
+# (Nen luu weights tren cloud/drive thay vi push vao Git de tranh nang repo)
+*.caffemodel
+*.weights
+*.pt
+*.pth
+*.onnx
+*.tflite
+*.h5
+*.pkl
+# Giu lai file kien truc model nho neu can
+!*.prototxt
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
