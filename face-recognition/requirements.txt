@@ -1,3 +1,7 @@
-Flask>=3.1.0,<4
-numpy>=2.0.0,<3
-opencv-python-headless>=4.8.0
+# Thư viện cho Raspberry Pi 4 (Cửa sổ GUI OpenCV Desktop + Phần cứng GPIO)
+numpy>=1.24.0
+opencv-python>=4.8.0
+RPi.GPIO>=0.7.1; platform_system == "Linux"
+
+# Thư viện cho Laptop phát camera stream
+Flask>=3.0.0

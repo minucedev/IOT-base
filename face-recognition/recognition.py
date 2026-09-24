@@ -59,12 +59,16 @@ class RecognitionEngine:
 
         # Shared state — display
         self._display_jpeg: Optional[bytes] = None
+        self._display_frame: Optional[np.ndarray] = None
         self._display_lock = threading.Lock()
 
         # Shared state — inference result
         self._latest_name = "Chưa nhận diện"
         self._latest_similarity = 0.0
         self._latest_fps = 0.0
+        self._has_known = False
+        self._has_stranger = False
+        self._known_person_name = ""
         self._last_faces: list[tuple[np.ndarray, str, float]] = []
         self._infer_lock = threading.RLock()
 
@@ -149,8 +153,9 @@ class RecognitionEngine:
             ok, buf = cv2.imencode(
                 ".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality]
             )
-            if ok:
-                with self._display_lock:
+            with self._display_lock:
+                self._display_frame = annotated.copy()
+                if ok:
                     self._display_jpeg = buf.tobytes()
 
             # FPS capture (Thread A) — chỉ đếm khi camera thực sự có frame mới
@@ -244,6 +249,9 @@ class RecognitionEngine:
         faces = self._detect(frame)
         result_name, result_score = "Người lạ", 0.0
         cached: list[tuple[np.ndarray, str, float]] = []
+        has_known = False
+        has_stranger = False
+        known_name = ""
 
         for face in faces:
             aligned = self.recognizer.alignCrop(frame, face)
@@ -253,27 +261,55 @@ class RecognitionEngine:
             cached.append((face.copy(), name, score))
 
             if name != "Người lạ":
+                has_known = True
+                known_name = name
                 result_name, result_score = name, score
                 person_id = int(item["person_id"])
                 now = time.monotonic()
                 if now - self._last_logged.get(person_id, 0.0) >= self.log_interval:
                     self.database.log_recognition(person_id, name, score)
                     self._last_logged[person_id] = now
+            else:
+                has_stranger = True
 
         with self._infer_lock:
             self._last_faces = cached
             self._latest_name = result_name
             self._latest_similarity = result_score
+            self._has_known = has_known
+            self._has_stranger = has_stranger
+            self._known_person_name = known_name
 
     # ── Draw helpers ─────────────────────────────────────────────────────
 
     @staticmethod
     def _draw_face(frame, x, y, w, h, name, score) -> None:
-        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 190, 90), 2)
+        if name == "Người lạ":
+            color = (0, 0, 255)  # Màu đỏ cảnh báo người lạ
+            label = "NGUOI LA / UNKNOWN"
+        else:
+            color = (0, 220, 0)  # Màu xanh lá người đã đăng ký
+            label = f"{name} ({score:.2f})"
+
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+        label_size, baseline = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+        y_label = max(20, y - 8)
+        cv2.rectangle(
+            frame,
+            (x, y_label - label_size[1] - 4),
+            (x + label_size[0] + 4, y_label + baseline),
+            color,
+            -1,
+        )
         cv2.putText(
-            frame, f"{name} {score:.2f}",
-            (x, max(25, y - 10)),
-            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 190, 90), 2,
+            frame,
+            label,
+            (x + 2, y_label - 2),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 0, 0) if name != "Người lạ" else (255, 255, 255),
+            1,
+            cv2.LINE_AA,
         )
 
     def _draw_cached(self, frame: np.ndarray) -> np.ndarray:
@@ -286,7 +322,7 @@ class RecognitionEngine:
 
     # ── Register ─────────────────────────────────────────────────────────
 
-    def register_latest(self, name: str, sample_count: int = 8) -> tuple[bool, str]:
+    def register_latest(self, name: str, sample_count: int = 5) -> tuple[bool, str]:
         clean = name.strip()
         if not clean:
             return False, "Tên không được rỗng"
@@ -317,7 +353,7 @@ class RecognitionEngine:
                             best_frame = fr.copy()
                 time.sleep(0.35)
 
-            if len(embeddings) < 3:
+            if len(embeddings) < 2:
                 return False, (
                     f"Chỉ thu được {len(embeddings)} mẫu; hãy nhìn thẳng camera và thử lại"
                 )
@@ -347,3 +383,29 @@ class RecognitionEngine:
             sim = self._latest_similarity
             fps = self._latest_fps
         return jpeg, name, sim, fps, capture_fps
+
+    def get_status_info(self) -> dict:
+        """Lấy dữ liệu hiển thị trực tiếp cho cửa sổ OpenCV và trạng thái AI."""
+        with self._display_lock:
+            frame = None if self._display_frame is None else self._display_frame.copy()
+            cap_fps = self._latest_capture_fps
+        with self._infer_lock:
+            has_known = self._has_known
+            known_name = self._known_person_name
+            has_stranger = self._has_stranger
+            faces_count = len(self._last_faces)
+            infer_fps = self._latest_fps
+            latest_name = self._latest_name
+            similarity = self._latest_similarity
+
+        return {
+            "frame": frame,
+            "has_known": has_known,
+            "known_name": known_name,
+            "has_stranger": has_stranger,
+            "faces_count": faces_count,
+            "infer_fps": infer_fps,
+            "cap_fps": cap_fps,
+            "latest_name": latest_name,
+            "similarity": similarity,
+        }
