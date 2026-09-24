@@ -31,8 +31,9 @@ DEFAULT_VAD_MODEL = PROJECT_DIR / "models" / "silero_vad.onnx"
 # ---------------------------------------------------------------------------
 COMMAND_WORDS = (
     "bật", "mở", "tắt", "đóng",
-    "quạt", "đèn",
+    "động", "cơ", "đèn",
     "hết", "cả", "hai", "và", "đi",
+    "nóng", "lạnh", "quá", "trời", "sáng", "tối",
 )
 
 COMMAND_FILLERS = {"đi"}
@@ -41,7 +42,6 @@ COMMAND_CONFUSIONS = {
     "bực": "bật",
     "bậc": "bật",
     "đống": "đóng",
-    "đông": "đóng",
 }
 
 
@@ -292,7 +292,7 @@ def run_asr_pipeline(
     print("=" * 66)
     print(" 🚀 HỆ THỐNG NHẬN DIỆN GIỌNG NÓI TIẾNG VIỆT ĐÃ SẴN SÀNG")
     print("=" * 66)
-    print(" Hãy nói các khẩu lệnh: 'bật đèn', 'tắt đèn', 'mở quạt', 'tắt quạt'...")
+    print(" Hãy nói các khẩu lệnh: 'bật đèn', 'tắt đèn', 'mở động cơ', 'tắt động cơ'...")
     print(" Nhấn Ctrl+C để dừng.")
     print("=" * 66)
 

@@ -2,7 +2,7 @@
 """Điều khiển thiết bị nhà thông minh bằng giọng nói tiếng Việt trên Raspberry Pi.
 
 Nhận âm thanh stream từ Laptop Microphone qua TCP Socket,
-nhận diện khẩu lệnh (bật/tắt đèn, bật/tắt quạt) và điều khiển trực tiếp qua chân GPIO.
+nhận diện khẩu lệnh (bật/tắt đèn, bật/tắt động cơ DC) và điều khiển trực tiếp qua chân GPIO.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ LIGHT_PIN = 17       # Chân điều khiển Đèn / LED
 
 MOTOR_IN1_PIN = 23   # Chân L298N IN1
 MOTOR_IN2_PIN = 24   # Chân L298N IN2
-MOTOR_ENA_PIN = 13   # Chân L298N ENA (PWM tốc độ quạt)
+MOTOR_ENA_PIN = 13   # Chân L298N ENA (PWM tốc độ động cơ)
 # ============================================================
 
 
@@ -66,7 +66,7 @@ class HardwareController:
         self.motor_in2 = OutputDevice(MOTOR_IN2_PIN, active_high=True, initial_value=False)
         self.motor_ena = PWMOutputDevice(MOTOR_ENA_PIN, active_high=True, initial_value=0, frequency=1000)
         self._closed = False
-        print(color("[+] Khởi tạo GPIO thành công (Đèn: GPIO17, Quạt: GPIO13,23,24).", C.GREEN))
+        print(color("[+] Khởi tạo GPIO thành công (Đèn: GPIO17, Động cơ: GPIO13,23,24).", C.GREEN))
 
     def turn_light_on(self) -> None:
         self.light.on()
@@ -74,13 +74,13 @@ class HardwareController:
     def turn_light_off(self) -> None:
         self.light.off()
 
-    def turn_fan_on(self, speed: float = 1.0) -> None:
+    def turn_motor_on(self, speed: float = 1.0) -> None:
         speed = max(0.0, min(1.0, float(speed)))
         self.motor_in1.on()
         self.motor_in2.off()
         self.motor_ena.value = speed
 
-    def turn_fan_off(self) -> None:
+    def turn_motor_off(self) -> None:
         self.motor_ena.value = 0
         self.motor_in1.off()
         self.motor_in2.off()
@@ -88,7 +88,7 @@ class HardwareController:
     def get_light_state(self) -> bool:
         return self.light.is_lit
 
-    def get_fan_state(self) -> bool:
+    def get_motor_state(self) -> bool:
         return self.motor_ena.value > 0
 
     def cleanup(self) -> None:
@@ -96,7 +96,7 @@ class HardwareController:
             return
         self._closed = True
         self.turn_light_off()
-        self.turn_fan_off()
+        self.turn_motor_off()
         self.light.close()
         self.motor_in1.close()
         self.motor_in2.close()
@@ -113,12 +113,12 @@ ACTION_ALIASES = {
 
 DEVICE_ALIASES = {
     "light": ("đèn",),
-    "fan": ("quạt",),
+    "motor": ("động_cơ",),  # normalize() đã gộp "động cơ" -> "động_cơ" thành 1 token
 }
 
 ACTION_LABELS = {"on": "BẬT", "off": "TẮT"}
-DEVICE_LABELS = {"light": "ĐÈN", "fan": "QUẠT"}
-DEVICE_ICONS = {"light": "💡", "fan": "🌀"}
+DEVICE_LABELS = {"light": "ĐÈN", "motor": "ĐỘNG CƠ"}
+DEVICE_ICONS = {"light": "💡", "motor": "🌀"}
 
 
 @dataclass(frozen=True)
@@ -127,8 +127,20 @@ class Command:
     action: str
 
 
+# Khẩu lệnh cảm ngữ cảnh: không cần nói "bật/tắt", chỉ cần mô tả điều kiện.
+# Mỗi trigger khớp khi TẤT CẢ các từ khóa xuất hiện trong câu nói (không phân biệt thứ tự).
+SENSOR_TRIGGERS: tuple[tuple[frozenset[str], tuple[Command, ...]], ...] = (
+    (frozenset({"nóng", "quá"}), (Command("motor", "on"),)),
+    (frozenset({"lạnh", "quá"}), (Command("motor", "off"),)),
+    (frozenset({"trời", "tối"}), (Command("light", "on"),)),
+    (frozenset({"trời", "sáng"}), (Command("light", "off"),)),
+)
+
+
 def normalize(text: str) -> str:
-    return asr.postprocess_command_text(text)
+    text = asr.postprocess_command_text(text)
+    # "động cơ" là khẩu lệnh 2 từ -> gộp thành 1 token để so khớp thiết bị.
+    return text.replace("động cơ", "động_cơ")
 
 
 def parse_commands(text: str) -> list[Command]:
@@ -138,6 +150,13 @@ def parse_commands(text: str) -> list[Command]:
         return []
 
     tokens = text.split()
+    token_set = set(tokens)
+
+    # Khẩu lệnh cảm ngữ cảnh: "nóng quá", "lạnh quá", "trời sáng", "trời tối"...
+    for keywords, cmds in SENSOR_TRIGGERS:
+        if keywords <= token_set:
+            return list(cmds)
+
     actions = [w for w in tokens if any(w in aliases for aliases in ACTION_ALIASES.values())]
     devices = [w for w in tokens if any(w in aliases for aliases in DEVICE_ALIASES.values())]
 
@@ -157,7 +176,7 @@ def parse_commands(text: str) -> list[Command]:
     has_all = any(w in tokens for w in ("hết", "cả", "hai"))
     if actions and has_all:
         act = to_action(actions[0])
-        return [Command("light", act), Command("fan", act)]
+        return [Command("light", act), Command("motor", act)]
 
     # Ghép action + device
     results: list[Command] = []
@@ -190,11 +209,11 @@ def execute_command(cmd: Command, hw: HardwareController) -> None:
             hw.turn_light_on()
         else:
             hw.turn_light_off()
-    elif cmd.device == "fan":
+    elif cmd.device == "motor":
         if cmd.action == "on":
-            hw.turn_fan_on(1.0)
+            hw.turn_motor_on(1.0)
         else:
-            hw.turn_fan_off()
+            hw.turn_motor_off()
 
 
 def print_banner(host: str, port: int) -> None:
@@ -202,12 +221,14 @@ def print_banner(host: str, port: int) -> None:
     print(color("  🎙️  VIETNAMESE SPEECH SMART HOME CONTROL", C.CYAN, C.BOLD))
     print("=" * 60)
     print(f" Nguồn Mic Laptop : {host}:{port} (TCP PCM 16kHz)")
-    print(f" Phần cứng GPIO   : Đèn (GPIO 17), Quạt (GPIO 13, 23, 24)")
+    print(f" Phần cứng GPIO   : Đèn (GPIO 17), Động cơ DC (GPIO 13, 23, 24)")
     print(hr(60))
     print(" Các khẩu lệnh được hỗ trợ:")
     print("   💡 'bật đèn'   / 'tắt đèn'   (hoặc 'mở đèn' / 'đóng đèn')")
-    print("   🌀 'bật quạt'  / 'tắt quạt'  (hoặc 'mở quạt' / 'đóng quạt')")
-    print("   ⚡ 'bật cả hai' / 'tắt hết'  / 'bật đèn và quạt'")
+    print("   🌀 'bật động cơ'  / 'tắt động cơ'  (hoặc 'mở động cơ' / 'đóng động cơ')")
+    print("   ⚡ 'bật cả hai' / 'tắt hết'  / 'bật đèn và động cơ'")
+    print("   🌡️  'nóng quá' -> bật động cơ  |  'lạnh quá' -> tắt động cơ")
+    print("   🌤️  'trời tối' -> bật đèn      |  'trời sáng' -> tắt đèn")
     print("=" * 60)
 
 
