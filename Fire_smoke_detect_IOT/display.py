@@ -118,22 +118,32 @@ def show(frame):
     - 'focus': nếu nhấn 'f' để lấy nét lại
     - 'focus_near': nếu nhấn ']' hoặc '+' để tăng tiêu cự
     - 'focus_far': nếu nhấn '[' hoặc '-' để giảm tiêu cự
+    - 'no_gui': môi trường không hỗ trợ mở cửa sổ OpenCV GUI
     - None: không có phím đặc biệt
     """
-    cv2.imshow(config.WINDOW_NAME, frame)
-    key = cv2.waitKey(1) & 0xFF
-    if key in (ord('q'), 27):
-        return 'quit'
-    elif key == ord('c'):
-        return 'color'
-    elif key == ord('f'):
-        return 'focus'
-    elif key in (ord(']'), ord('='), ord('+')):
-        return 'focus_near'
-    elif key in (ord('['), ord('-')):
-        return 'focus_far'
-    return None
+    try:
+        cv2.imshow(config.WINDOW_NAME, frame)
+        key = cv2.waitKey(1) & 0xFF
+        if key in (ord('q'), 27):
+            return 'quit'
+        elif key == ord('c'):
+            return 'color'
+        elif key == ord('f'):
+            return 'focus'
+        elif key in (ord(']'), ord('='), ord('+')):
+            return 'focus_near'
+        elif key in (ord('['), ord('-')):
+            return 'focus_far'
+        return None
+    except cv2.error:
+        return 'no_gui'
+    except Exception:
+        return 'no_gui'
+
 
 def close():
     """Đóng tất cả cửa sổ OpenCV"""
-    cv2.destroyAllWindows()
+    try:
+        cv2.destroyAllWindows()
+    except Exception:
+        pass

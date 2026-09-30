@@ -143,6 +143,11 @@ def main():
                 if action == 'quit':
                     print("[He thong] Nhan lenh thoat tu ban phim.")
                     break
+                elif action == 'no_gui':
+                    print("[*] Môi trường không hỗ trợ cửa sổ OpenCV GUI (thiếu GTK hoặc đang chạy SSH/headless).")
+                    print("[*] Tự động chuyển sang chế độ không màn hình (headless) để tiếp tục nhận diện...")
+                    show_display = False
+                    continue
                 elif action == 'color':
                     camera.toggle_color_swap()
                 elif action == 'focus':

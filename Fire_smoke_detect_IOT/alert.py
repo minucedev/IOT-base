@@ -41,8 +41,10 @@ class AlertSystem:
             from gpiozero import LED
             self.led = LED(getattr(config, "LED_PIN", 27))
             self.has_hardware = True
+            self.platform = "pi"
             print(f"[Cảnh báo] Đã khởi tạo GPIO: Còi BCM {config.BUZZER_PIN} ({self.mode}), Đèn LED BCM {getattr(config, 'LED_PIN', 27)}")
         except Exception as e:
+            self.platform = "simulation"
             print(f"[Cảnh báo] Chạy chế độ mô phỏng console (không có GPIO: {e}).")
 
     def _sound_on(self):
@@ -145,7 +147,7 @@ class AlertSystem:
                     return  # đang chạy rồi, không spawn thêm
                 self._should_buzz = True
                 self.is_buzzing = True
-            if self.platform == "laptop":
+            if not self.has_hardware:
                 print("[CẢNH BÁO] >>> CÒI GIẢ LẬP: ĐANG HÚ CẢNH BÁO <<<")
             self._buzz_thread = threading.Thread(
                 target=self._buzz_sine_worker, daemon=True, name="BuzzSine"
@@ -176,8 +178,14 @@ class AlertSystem:
         """Dọn dẹp tài nguyên khi tắt chương trình"""
         self._sound_off()
         self._led_off()
-        if self.platform == "pi":
-            if hasattr(self, "buzzer"):
-                self.buzzer.close()
-            if hasattr(self, "led"):
-                self.led.close()
+        if self.has_hardware:
+            if hasattr(self, "buzzer") and self.buzzer:
+                try:
+                    self.buzzer.close()
+                except Exception:
+                    pass
+            if hasattr(self, "led") and self.led:
+                try:
+                    self.led.close()
+                except Exception:
+                    pass
