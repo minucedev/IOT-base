@@ -109,6 +109,9 @@ def draw_overlay(frame, detections, fps=None, ai_fps=None):
 
     return render_frame
 
+_window_initialized = False
+
+
 def show(frame):
     """
     Hiện frame lên cửa sổ.
@@ -121,7 +124,15 @@ def show(frame):
     - 'no_gui': môi trường không hỗ trợ mở cửa sổ OpenCV GUI
     - None: không có phím đặc biệt
     """
+    global _window_initialized
     try:
+        if not _window_initialized:
+            # Khởi tạo cửa sổ chuẩn, không có thanh toolbar nút thừa (WINDOW_GUI_NORMAL)
+            cv2.namedWindow(config.WINDOW_NAME, cv2.WINDOW_NORMAL | cv2.WINDOW_GUI_NORMAL)
+            h, w = frame.shape[:2]
+            cv2.resizeWindow(config.WINDOW_NAME, w, h)
+            _window_initialized = True
+
         cv2.imshow(config.WINDOW_NAME, frame)
         key = cv2.waitKey(1) & 0xFF
         if key in (ord('q'), 27):
@@ -143,6 +154,8 @@ def show(frame):
 
 def close():
     """Đóng tất cả cửa sổ OpenCV"""
+    global _window_initialized
+    _window_initialized = False
     try:
         cv2.destroyAllWindows()
     except Exception:

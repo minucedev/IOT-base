@@ -50,4 +50,4 @@ SNAPSHOT_DIR = "data/snapshots"
 # --- HIỂN THỊ MÀN HÌNH ---
 # Hiện cửa sổ video (cv2.imshow). Đặt True để hiện màn hình camera, False nếu chạy headless (không màn hình)
 SHOW_DISPLAY = True
-WINDOW_NAME = "Hệ thống nhận diện lửa - IoT"
+WINDOW_NAME = "He thong nhan dien lua - IoT"
