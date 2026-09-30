@@ -1,0 +1,13 @@
+# --- CÁC THƯ VIỆN AI & XỬ LÝ ẢNH (CHẠY TRÊN RASPBERRY PI VÀ LAPTOP) ---
+# Sử dụng ONNX Runtime thay cho Ultralytics/PyTorch để tiết kiệm RAM và CPU
+onnxruntime>=1.15.0
+numpy>=1.23.0
+Pillow>=10.0.0
+
+# --- LƯU Ý PHẦN CỨNG TRÊN RASPBERRY PI OS ---
+# Camera được truyền qua mạng từ Laptop Server (không cần Picamera2 hay cáp CSI).
+# GPIOZero và OpenCV được cài qua apt để tối ưu trên Raspberry Pi:
+#   sudo apt update
+#   sudo apt install -y python3-gpiozero python3-opencv fonts-dejavu-core libgl1 libglib2.0-0
+# Cài đặt thư viện Python:
+#   pip install -r requirements.txt --break-system-packages

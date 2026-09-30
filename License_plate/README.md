@@ -12,7 +12,7 @@ Dự án nhận diện biển số xe tự động điều khiển cổng Barrie
 | :--- | :--- | :--- | :--- | :--- |
 | **Servo Barrier (SG90/MG996R)** | **GPIO 12** | Pin 32 | Nguồn 5V ngoài + GND chung Pi | Dùng Hardware PWM (kênh 0) |
 | **Đèn LED Báo Lỗi (+ Trở 220Ω)** | **GPIO 16** | Pin 36 | GND Pi | Sáng 2 giây khi biển số không hợp lệ |
-| **Webcam USB** | Cổng USB | Cổng USB 2.0 / 3.0 | Nguồn từ Pi | Đặt góc quay trực diện biển số |
+| **Camera** | Stream qua mạng LAN | - | Laptop Media Stream Server | URL: `http://10.232.65.44:5000/video_feed` |
 
 ---
 
@@ -60,27 +60,39 @@ pip install -r requirements.txt --break-system-packages
 
 ## 4. Hướng Dẫn Sử Dụng
 
-### Thêm biển số được phép vào Database
-Trước khi chạy, bạn có thể thêm các biển số xe hợp lệ vào cơ sở dữ liệu SQLite (`plates.db`):
+### Bước 1: Khởi động Camera Stream Server trên Laptop
+Vào thư mục `laptop_cam_server` trên laptop và chạy:
+```bash
+python3 app.py
+# Server phát luồng tại: http://10.232.65.44:5000/video_feed
+```
+
+### Bước 2: Thêm biển số được phép vào Database (trên Pi)
+Trước khi chạy, bạn có thể thêm các biển số xe hợp lệ vào SQLite (`plates.db`):
 
 ```bash
 python3 main_rasp.py add 43A12345
 python3 main_rasp.py add 29B99999
 ```
 
-### Chạy Hệ Thống Nhận Diện + Web Server
-Chạy chương trình chính:
+### Bước 3: Chạy Hệ Thống Nhận Diện + Web Server (trên Pi)
+Chạy chương trình chính (mặc định lấy stream từ `http://10.232.65.44:5000/video_feed`):
 
 ```bash
 python3 main_rasp.py
+
+# Hoặc tùy biến URL laptop / cổng web:
+python3 main_rasp.py --source http://10.232.65.44:5000/video_feed --web-port 8080
+
+# Nếu chạy SSH không màn hình:
+python3 main_rasp.py --no-window
 ```
 
 - **OpenCV Window:** Nhấn phím `a` trên cửa sổ video để thêm ngay biển số vừa đọc vào DB; nhấn `q` để thoát.
 - **Web Dashboard:** Mở trình duyệt từ điện thoại, máy tính cùng mạng Wi-Fi/LAN:
   ```
-  http://<IP_RASPBERRY_PI>:5000
+  http://<IP_RASPBERRY_PI>:8080
   ```
-  *(Ví dụ: `http://192.168.1.50:5000`)*
 
 ### Giao Diện Web Dashboard Hiển Thị:
 - Màn hình LCD 16x2 retro mô phỏng:

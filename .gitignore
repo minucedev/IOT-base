@@ -62,6 +62,7 @@ face_detection/captures/
 *.pkl
 # Giu lai file kien truc model nho neu can
 !*.prototxt
+!Fire_smoke_detect_IOT/models/*.onnx
 
 # Logs and databases
 *.log

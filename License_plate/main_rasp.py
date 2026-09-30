@@ -45,13 +45,13 @@ from collections import deque
 # ---------------- CẤU HÌNH ----------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "plates.db")
-CAMERA_INDEX = 0
+DEFAULT_CAMERA_URL = "http://10.232.65.44:5000/video_feed"
 SHOW_WINDOW = True           # True: mở cửa sổ OpenCV GUI nếu có màn hình; False: headless
-cv2 = None                   # Được import trong hàm main() khi khởi chạy webcam
+cv2 = None                   # Được import trong hàm main() khi khởi chạy
 
 # Flask Config
 WEB_HOST = "0.0.0.0"
-WEB_PORT = 5000
+WEB_PORT = 8080              # Cổng Web Dashboard mô phỏng LCD
 
 # Servo: GPIO12 = PWM kênh 0 (dtoverlay=pwm,pin=12,func=4)
 SERVO_PWM_CHANNEL = 0
@@ -146,11 +146,11 @@ def create_flask_app():
     return app
 
 
-def start_flask():
+def start_flask(port=WEB_PORT):
     try:
         app = create_flask_app()
-        print(f"[*] Flask Web Dashboard đang chạy tại http://{WEB_HOST}:{WEB_PORT}")
-        app.run(host=WEB_HOST, port=WEB_PORT, debug=False, use_reloader=False, threaded=True)
+        print(f"[*] Flask Web Dashboard đang chạy tại http://{WEB_HOST}:{port}")
+        app.run(host=WEB_HOST, port=port, debug=False, use_reloader=False, threaded=True)
     except Exception as e:
         print(f"[CẢNH BÁO] Không thể khởi động Flask Web Server: {e}")
 
@@ -376,9 +376,61 @@ def draw_ui(frame, box, live_text, status, status_plate, status_until):
     put(frame, "a: them bien vao DB | q: thoat", (10, 25), (255, 255, 255), 0.55, 1)
 
 
+# ---------------- BỘ ĐỌC LUỒNG VIDEO LAPTOP ----------------
+class StreamCapture:
+    """Đọc luồng video MJPEG từ Laptop Server qua background thread để luôn giữ khung hình mới nhất, không tích lũy trễ."""
+
+    def __init__(self, url):
+        self.url = url
+        self.cap = None
+        self.frame = None
+        self.running = True
+        self.lock = threading.Lock()
+        self.thread = threading.Thread(target=self._worker, daemon=True)
+        self.thread.start()
+
+    def _worker(self):
+        while self.running:
+            if self.cap is None or not self.cap.isOpened():
+                print(f"[*] Đang kết nối tới Laptop Camera: {self.url} ...")
+                self.cap = cv2.VideoCapture(self.url)
+                if not self.cap.isOpened():
+                    time.sleep(1.0)
+                    continue
+                print(f"[✓] Đã kết nối thành công tới Laptop Camera: {self.url}")
+
+            ok, f = self.cap.read()
+            if ok and f is not None and f.size > 0:
+                with self.lock:
+                    self.frame = f
+            else:
+                if self.cap:
+                    try:
+                        self.cap.release()
+                    except Exception:
+                        pass
+                self.cap = None
+                time.sleep(0.5)
+
+    def read(self):
+        with self.lock:
+            if self.frame is not None:
+                return True, self.frame.copy()
+            return False, None
+
+    def release(self):
+        self.running = False
+        if self.cap:
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+
+
 # ---------------- MAIN ----------------
-def main():
+def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW):
     global SHOW_WINDOW, cv2
+    SHOW_WINDOW = show_gui
     try:
         import cv2
     except ImportError:
@@ -390,15 +442,11 @@ def main():
     init_ai_models()
 
     # Khởi động Flask Server chạy ngầm
-    flask_thread = threading.Thread(target=start_flask, daemon=True)
+    flask_thread = threading.Thread(target=start_flask, args=(web_port,), daemon=True)
     flask_thread.start()
 
-    cap = cv2.VideoCapture(CAMERA_INDEX)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    if not cap.isOpened():
-        print(f"[LỖI] Không mở được webcam tại CAMERA_INDEX={CAMERA_INDEX}")
-        return
+    # Kết nối tới Laptop Camera Stream
+    cap = StreamCapture(camera_url)
 
     # Đưa servo về 0 rồi ngắt xung để đứng yên không giật
     servo.angle = 0
@@ -413,12 +461,13 @@ def main():
     last_seen = None
     status, status_plate, status_until = None, "", 0
     next_allowed = 0
-    print("[*] Hệ thống sẵn sàng. Truy cập Web Dashboard hoặc nhấn 'q' trên cửa sổ video để thoát.")
+    print(f"[*] Hệ thống sẵn sàng nhận diện từ nguồn: {camera_url}")
+    print("[*] Nhấn 'q' trên cửa sổ video (hoặc Ctrl+C) để dừng.")
 
     try:
         while True:
             ok, frame = cap.read()
-            if not ok:
+            if not ok or frame is None:
                 time.sleep(0.01)
                 continue
             frame_count += 1
@@ -488,10 +537,27 @@ def main():
         print("[*] Đã dọn dẹp và dừng tiến trình an toàn.")
 
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser(description="Nhận diện biển số xe nhận stream từ Laptop Camera Server")
+    parser.add_argument("command", nargs="?", default="run", choices=["run", "add"],
+                        help="Lệnh thực thi: 'run' (mặc định) hoặc 'add' để thêm biển số vào DB")
+    parser.add_argument("plate", nargs="?", default=None,
+                        help="Biển số xe cần thêm vào DB (khi dùng lệnh 'add')")
+    parser.add_argument("--source", "-s", default=DEFAULT_CAMERA_URL,
+                        help=f"URL luồng video từ Laptop Camera (mặc định: {DEFAULT_CAMERA_URL})")
+    parser.add_argument("--web-port", type=int, default=WEB_PORT,
+                        help=f"Cổng Flask Web Dashboard trên Pi (mặc định: {WEB_PORT})")
+    parser.add_argument("--no-window", action="store_true",
+                        help="Chạy chế độ không mở cửa sổ OpenCV GUI (headless/SSH)")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "add":
+    args = parse_args()
+    if args.command == "add" and args.plate:
         c = init_db()
-        add_plate(c, sys.argv[2])
-        print("Đã thêm biển số vào DB:", normalize(sys.argv[2]))
+        add_plate(c, args.plate)
+        print("Đã thêm biển số vào DB:", normalize(args.plate))
     else:
-        main()
+        main(camera_url=args.source, web_port=args.web_port, show_gui=not args.no_window)
