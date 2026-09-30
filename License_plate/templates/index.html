@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Nhận Diện Biển Số Xe - Raspberry Pi</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --lcd-bg: #223825;
+            --lcd-text: #39ff14;
+            --border-color: #334155;
+            --color-green: #22c55e;
+            --color-red: #ef4444;
+            --color-blue: #3b82f6;
+            --color-amber: #f59e0b;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 24px 16px;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+
+        .header h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .header p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            margin-top: 6px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 680px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            padding: 20px;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
+        }
+
+        .card-title {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* VIRTUAL LCD 16x2 */
+        .lcd-case {
+            background: #111827;
+            border: 8px solid #2d3748;
+            border-radius: 8px;
+            padding: 16px 20px;
+            box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.8), 0 4px 6px rgba(0,0,0,0.4);
+        }
+
+        .lcd-screen {
+            background-color: var(--lcd-bg);
+            border: 2px solid #142817;
+            border-radius: 4px;
+            padding: 14px 16px;
+            box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.7);
+            font-family: "Courier New", Courier, monospace, monospace;
+            font-weight: 800;
+            color: var(--lcd-text);
+            text-shadow: 0 0 5px rgba(57, 255, 20, 0.7);
+            letter-spacing: 3px;
+        }
+
+        .lcd-line {
+            height: 32px;
+            display: flex;
+            align-items: center;
+            font-size: 1.35rem;
+            white-space: pre;
+            overflow: hidden;
+        }
+
+        .lcd-line1 {
+            border-bottom: 1px dashed rgba(57, 255, 20, 0.2);
+            padding-bottom: 4px;
+            margin-bottom: 4px;
+        }
+
+        /* HARDWARE STATUS TILES */
+        .grid-status {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+        }
+
+        .status-box {
+            background-color: #162032;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .status-label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .status-value {
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .dot-green {
+            background-color: var(--color-green);
+            box-shadow: 0 0 8px var(--color-green);
+        }
+
+        .dot-red {
+            background-color: var(--color-red);
+            box-shadow: 0 0 8px var(--color-red);
+        }
+
+        .dot-gray {
+            background-color: #64748b;
+        }
+
+        .dot-blue {
+            background-color: var(--color-blue);
+            box-shadow: 0 0 8px var(--color-blue);
+        }
+
+        /* BANNER */
+        .event-banner {
+            border-radius: 10px;
+            padding: 14px 18px;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            transition: all 0.3s ease;
+        }
+
+        .event-idle {
+            background: rgba(59, 130, 246, 0.15);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            color: #93c5fd;
+        }
+
+        .event-ok {
+            background: rgba(34, 197, 94, 0.2);
+            border: 1px solid rgba(34, 197, 94, 0.5);
+            color: #86efac;
+        }
+
+        .event-fail {
+            background: rgba(239, 68, 68, 0.2);
+            border: 1px solid rgba(239, 68, 68, 0.5);
+            color: #fca5a5;
+        }
+
+        .connection-indicator {
+            font-size: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+        }
+
+        .plate-highlight {
+            font-family: "Courier New", monospace;
+            font-size: 1.4rem;
+            font-weight: 900;
+            letter-spacing: 2px;
+        }
+
+        @media (max-width: 480px) {
+            .grid-status {
+                grid-template-columns: 1fr;
+            }
+            .lcd-line {
+                font-size: 1.05rem;
+                letter-spacing: 1.5px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>🚗 Bảng Điều Khiển Barrier Xe</h1>
+        <p>Giao diện Web thay thế màn LCD 16x2 trên Raspberry Pi</p>
+    </div>
+
+    <div class="container">
+        <!-- VIRTUAL LCD -->
+        <div class="card">
+            <div class="card-title">
+                <span>Màn Hình LCD 16x2 (Mô Phỏng Web)</span>
+                <div class="connection-indicator">
+                    <span id="conn-dot" class="badge-dot dot-green"></span>
+                    <span id="conn-text">Đang kết nối</span>
+                </div>
+            </div>
+
+            <div class="lcd-case">
+                <div class="lcd-screen">
+                    <div id="lcd-line1" class="lcd-line lcd-line1">San sang quet...</div>
+                    <div id="lcd-line2" class="lcd-line">                </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CURRENT EVENT BANNER -->
+        <div id="event-box" class="event-banner event-idle">
+            <div>
+                <div style="font-size: 0.85rem; opacity: 0.8;">KẾT QUẢ QUÉT GẦN NHẤT</div>
+                <div id="banner-text" style="font-size: 1.15rem; margin-top: 2px;">Đang đợi phương tiện...</div>
+            </div>
+            <div id="banner-plate" class="plate-highlight">---</div>
+        </div>
+
+        <!-- HARDWARE PERIPHERALS STATUS -->
+        <div class="grid-status">
+            <div class="status-box">
+                <div class="status-label">BARRIER (SERVO PWM - GPIO12)</div>
+                <div class="status-value">
+                    <span id="servo-dot" class="badge-dot dot-gray"></span>
+                    <span id="servo-status">ĐÓNG (0°)</span>
+                </div>
+            </div>
+
+            <div class="status-box">
+                <div class="status-label">ĐÈN BÁO LỖI (LED - GPIO16)</div>
+                <div class="status-value">
+                    <span id="led-dot" class="badge-dot dot-gray"></span>
+                    <span id="led-status">TẮT</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const elLine1 = document.getElementById('lcd-line1');
+        const elLine2 = document.getElementById('lcd-line2');
+        const elEventBox = document.getElementById('event-box');
+        const elBannerText = document.getElementById('banner-text');
+        const elBannerPlate = document.getElementById('banner-plate');
+        const elServoStatus = document.getElementById('servo-status');
+        const elServoDot = document.getElementById('servo-dot');
+        const elLedStatus = document.getElementById('led-status');
+        const elLedDot = document.getElementById('led-dot');
+        const elConnDot = document.getElementById('conn-dot');
+        const elConnText = document.getElementById('conn-text');
+
+        let isConnected = true;
+
+        function padLcd(str) {
+            str = str || "";
+            return (str + "                ").substring(0, 16);
+        }
+
+        async function fetchStatus() {
+            try {
+                const res = await fetch('/api/status', { cache: 'no-store' });
+                if (!res.ok) throw new Error("HTTP error " + res.status);
+                const data = await res.json();
+
+                if (!isConnected) {
+                    isConnected = true;
+                    elConnDot.className = "badge-dot dot-green";
+                    elConnText.innerText = "Trực tuyến";
+                }
+
+                // Update Virtual LCD 16x2
+                elLine1.innerText = padLcd(data.line1);
+                elLine2.innerText = padLcd(data.line2);
+
+                // Update Servo
+                elServoStatus.innerText = data.servo_status || "ĐÓNG (0°)";
+                if (data.servo_angle > 0) {
+                    elServoDot.className = "badge-dot dot-green";
+                } else {
+                    elServoDot.className = "badge-dot dot-gray";
+                }
+
+                // Update LED
+                if (data.led_status) {
+                    elLedStatus.innerText = "SÁNG ĐỎ (LỖI)";
+                    elLedDot.className = "badge-dot dot-red";
+                } else {
+                    elLedStatus.innerText = "TẮT";
+                    elLedDot.className = "badge-dot dot-gray";
+                }
+
+                // Update Banner
+                if (data.status === "OK") {
+                    elEventBox.className = "event-banner event-ok";
+                    elBannerText.innerText = "BIỂN SỐ HỢP LỆ - MỞ CỔNG";
+                    elBannerPlate.innerText = data.plate || data.line2;
+                } else if (data.status === "FAIL") {
+                    elEventBox.className = "event-banner event-fail";
+                    elBannerText.innerText = "KHÔNG CÓ TRONG HỆ THỐNG";
+                    elBannerPlate.innerText = data.plate || data.line2;
+                } else {
+                    elEventBox.className = "event-banner event-idle";
+                    elBannerText.innerText = "Sẵn sàng quét...";
+                    elBannerPlate.innerText = data.plate ? data.plate : "---";
+                }
+
+            } catch (err) {
+                if (isConnected) {
+                    isConnected = false;
+                    elConnDot.className = "badge-dot dot-red";
+                    elConnText.innerText = "Mất kết nối";
+                }
+            }
+        }
+
+        // Poll every 350ms for smooth real-time response
+        setInterval(fetchStatus, 350);
+        fetchStatus();
+    </script>
+</body>
+</html>
