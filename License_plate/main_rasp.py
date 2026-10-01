@@ -66,7 +66,9 @@ MIN_DET_CONF = 0.5
 CONFIRM_FRAMES = 3           # Đọc giống nhau N lần liên tiếp mới chấp nhận
 FUZZY_THRESHOLD = 0.90       # 1.0 = khớp tuyệt đối
 HOLD_SECONDS = 2             # Giữ kết quả (đúng hay sai đều 2 giây)
-SERVO_RETURN_TIME = 0.6      # Thời gian chờ servo quay hết hành trình 0 <-> 180
+SERVO_MIN_PULSE = 0.0005     # 0.5 ms = góc 0 độ
+SERVO_MAX_PULSE = 0.0024     # 2.4 ms = góc 180 độ
+SERVO_MOVE_TIME = 0.6        # Thời gian chờ servo quay hết hành trình 0 <-> 180
 COOLDOWN = 0                 # Quét tiếp ngay sau khi xong
 # ------------------------------------------
 
@@ -157,38 +159,37 @@ def start_flask(port=WEB_PORT):
 
 # ---------------- PHẦN CỨNG ----------------
 class SafeServo:
-    """Servo điều khiển bằng gpiozero, bắt lỗi khi chạy ngoài Raspberry Pi."""
+    """Servo SG90 điều khiển bằng gpiozero AngularServo, bắt lỗi khi chạy ngoài Raspberry Pi."""
 
-    def __init__(self, pin, min_us=500, max_us=2500):
-        self._angle = 0
+    def __init__(self, pin):
+        self.pin = pin
         self.servo = None
         try:
             from gpiozero import AngularServo
             self.servo = AngularServo(
                 pin, initial_angle=None, min_angle=0, max_angle=180,
-                min_pulse_width=min_us / 1_000_000, max_pulse_width=max_us / 1_000_000,
+                min_pulse_width=SERVO_MIN_PULSE, max_pulse_width=SERVO_MAX_PULSE,
             )
         except Exception as e:
             print(f"[CẢNH BÁO] Không khởi tạo được servo GPIO {pin}: {e}. Chạy chế độ giả lập.")
 
-    @property
-    def angle(self):
-        return self._angle
+    def move_to(self, angle):
+        """Xuất xung đưa servo tới góc chỉ định, đợi quay xong rồi ngắt xung chống rung."""
+        angle = max(0, min(180, angle))
+        if self.servo is None:
+            print(f"[MOCK GPIO] -> Servo chuyển động tới góc: {angle}°")
+            return
+        try:
+            self.servo.angle = angle
+            time.sleep(SERVO_MOVE_TIME)      # Đợi servo quay đến vị trí
+            self.servo.detach()              # Ngắt xung giữ để servo không rung/kêu è è
+        except Exception as e:
+            print(f"[Lỗi Servo]: {e}")
 
-    @angle.setter
-    def angle(self, value):
-        self._angle = value
+    def close(self):
         if self.servo:
             try:
-                self.servo.angle = value
-            except Exception as e:
-                print(f"[Lỗi Servo]: {e}")
-
-    def detach(self):
-        """Ngừng phát xung để servo đứng yên, không rung."""
-        if self.servo:
-            try:
-                self.servo.detach()
+                self.servo.close()
             except Exception:
                 pass
 
@@ -236,6 +237,7 @@ class SafeButton:
 servo = SafeServo(SERVO_PIN)
 led = SafeLED(LED_PIN)
 hw_lock = threading.Lock()   # Tránh các luồng điều khiển phần cứng chồng chéo nhau
+servo_busy = threading.Event()   # Bật trong suốt chu trình servo, luồng AI tạm dừng nhận diện
 
 
 def show_idle():
@@ -261,15 +263,13 @@ def grant_access(plate):
             servo_status="MỞ (180°)",
             led_status=False,
         )
-        servo.angle = 0
-        time.sleep(0.3)
-        servo.angle = 180
-        time.sleep(SERVO_RETURN_TIME)
-        servo.detach()           # Ngắt xung trong lúc giữ mở để servo không giật tại chỗ
-        time.sleep(HOLD_SECONDS)
-        servo.angle = 0
-        time.sleep(SERVO_RETURN_TIME)
-        servo.detach()           # Ngừng phát xung để servo không giật
+        servo_busy.set()
+        try:
+            servo.move_to(180)
+            time.sleep(HOLD_SECONDS)     # Giữ mở 2 giây sau khi đã quay tới 180
+            servo.move_to(0)
+        finally:
+            servo_busy.clear()
         show_idle()
 
 
@@ -491,6 +491,9 @@ class AsyncRecognizer:
     def _worker(self):
         last_id, seq = 0, 0
         while self.running:
+            if servo_busy.is_set():          # Servo đang chạy: không nhận diện
+                time.sleep(0.05)
+                continue
             last_id, frame = self.cap.read_new(last_id)
             if frame is None:
                 time.sleep(0.005)
@@ -535,9 +538,7 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
     cap = StreamCapture(camera_url)
 
     # Đưa servo về 0 rồi ngắt xung để đứng yên không giật
-    servo.angle = 0
-    time.sleep(0.6)
-    servo.detach()
+    servo.move_to(0)
     led.off()
     show_idle()
 
@@ -580,7 +581,7 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
                         status, status_plate = "OK", matched
                         print(f"  -> HỢP LỆ ({matched}) | Servo 0 -> 180 -> 0 | Web LCD cập nhật")
                         run_async(grant_access, matched)
-                        hold = HOLD_SECONDS + 2 * SERVO_RETURN_TIME + 0.3
+                        hold = HOLD_SECONDS + 2 * SERVO_MOVE_TIME
                     else:
                         status, status_plate = "FAIL", text
                         print(f"  -> KHÔNG CÓ TRONG DB ({text}) | LED bật | Web LCD cập nhật")
@@ -618,7 +619,8 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
             except Exception:
                 pass
         with hw_lock:
-            servo.detach()
+            servo.move_to(0)
+            servo.close()
             led.off()
             web_state.update(line1="DA DUNG HE THONG", line2="", status="IDLE")
         print("[*] Đã dọn dẹp và dừng tiến trình an toàn.")
