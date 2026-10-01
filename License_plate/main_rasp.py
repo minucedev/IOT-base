@@ -6,7 +6,7 @@ Nhận diện biển số xe realtime trên Raspberry Pi 4 tích hợp Flask Web
 - ĐÚNG : Web LCD hiện biển số, servo quay 0 -> 180 độ, giữ 2 giây rồi về 0
 - SAI  : Web LCD hiện "KHONG CO", đèn LED sáng 2 giây
 - Dù đúng hay sai đều giữ kết quả 2 giây rồi mới quét tiếp
-- Servo dùng PWM PHẦN CỨNG (rpi-hardware-pwm) trên GPIO12
+- Servo dùng gpiozero (AngularServo) trên GPIO12
 - Đèn LED báo sai trên GPIO16
 
 Nối dây:
@@ -18,11 +18,10 @@ Nối dây:
 Cài đặt trên Raspberry Pi:
     sudo apt update
     sudo apt install -y python3-opencv
-    pip install open-image-models fast-plate-ocr onnxruntime gpiozero rpi-hardware-pwm flask --break-system-packages
+    pip install open-image-models fast-plate-ocr onnxruntime gpiozero flask --break-system-packages
 
-    Bật PWM phần cứng: thêm dòng sau vào cuối /boot/firmware/config.txt rồi reboot
-        dtoverlay=pwm,pin=12,func=4
-    Kiểm tra: ls /sys/class/pwm/ (phải thấy pwmchip0)
+Test phần cứng (servo, LED, nút) trước khi chạy:
+    python3 test_hardware.py
 
 Chạy:
     python3 main_rasp.py                  # Chạy nhận diện + mở Web Dashboard tại http://<IP_RASP>:5000
@@ -55,9 +54,7 @@ cv2 = None                   # Được import trong hàm main() khi khởi ch�
 WEB_HOST = "0.0.0.0"
 WEB_PORT = 8080              # Cổng Web Dashboard mô phỏng LCD
 
-# Servo: GPIO12 = PWM kênh 0 (dtoverlay=pwm,pin=12,func=4)
-SERVO_PWM_CHANNEL = 0
-SERVO_PWM_CHIP = 0           # Pi 4 = 0, Pi 5 = 2
+SERVO_PIN = 12               # GPIO12 = chân vật lý 32, dây tín hiệu servo
 LED_PIN = 16                 # GPIO16 = chân vật lý 36
 BUTTON_PIN = 20              # GPIO20 = chân vật lý 38, nút đăng ký biển số (nối xuống GND)
 REGISTER_WINDOW = 3.0        # Chỉ đăng ký biển đọc được trong N giây gần nhất
@@ -160,20 +157,20 @@ def start_flask(port=WEB_PORT):
 
 
 # ---------------- PHẦN CỨNG ----------------
-class HwServo:
-    """Servo dùng PWM phần cứng, độc lập với CPU."""
+class SafeServo:
+    """Servo điều khiển bằng gpiozero, bắt lỗi khi chạy ngoài Raspberry Pi."""
 
-    def __init__(self, channel=0, chip=0, min_us=500, max_us=2500):
-        self.channel, self.chip = channel, chip
-        self.min_us, self.max_us = min_us, max_us
-        self.running = False
+    def __init__(self, pin, min_us=500, max_us=2500):
         self._angle = 0
-        self.pwm = None
+        self.servo = None
         try:
-            from rpi_hardware_pwm import HardwarePWM
-            self.pwm = HardwarePWM(pwm_channel=channel, hz=50, chip=chip)
+            from gpiozero import AngularServo
+            self.servo = AngularServo(
+                pin, initial_angle=None, min_angle=0, max_angle=180,
+                min_pulse_width=min_us / 1_000_000, max_pulse_width=max_us / 1_000_000,
+            )
         except Exception as e:
-            print(f"[CẢNH BÁO] Không khởi tạo được HardwarePWM: {e}. Chạy chế độ giả lập.")
+            print(f"[CẢNH BÁO] Không khởi tạo được servo GPIO {pin}: {e}. Chạy chế độ giả lập.")
 
     @property
     def angle(self):
@@ -182,26 +179,19 @@ class HwServo:
     @angle.setter
     def angle(self, value):
         self._angle = value
-        if self.pwm:
+        if self.servo:
             try:
-                pulse_us = self.min_us + (self.max_us - self.min_us) * value / 180
-                duty = pulse_us / 20000 * 100      # chu kỳ 20 ms = 50 Hz
-                if self.running:
-                    self.pwm.change_duty_cycle(duty)
-                else:
-                    self.pwm.start(duty)
-                    self.running = True
+                self.servo.angle = value
             except Exception as e:
-                print(f"[Lỗi Servo PWM]: {e}")
+                print(f"[Lỗi Servo]: {e}")
 
     def detach(self):
         """Ngừng phát xung để servo đứng yên, không rung."""
-        if self.pwm and self.running:
+        if self.servo:
             try:
-                self.pwm.stop()
+                self.servo.detach()
             except Exception:
                 pass
-            self.running = False
 
 
 class SafeLED:
@@ -244,7 +234,7 @@ class SafeButton:
                 pass
 
 
-servo = HwServo(channel=SERVO_PWM_CHANNEL, chip=SERVO_PWM_CHIP)
+servo = SafeServo(SERVO_PIN)
 led = SafeLED(LED_PIN)
 hw_lock = threading.Lock()   # Tránh các luồng điều khiển phần cứng chồng chéo nhau
 

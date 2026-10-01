@@ -10,7 +10,7 @@ Dự án nhận diện biển số xe tự động điều khiển cổng Barrie
 
 | Thiết bị | Chân tín hiệu | Chân vật lý | Nguồn cấp | Ghi chú |
 | :--- | :--- | :--- | :--- | :--- |
-| **Servo Barrier (SG90/MG996R)** | **GPIO 12** | Pin 32 | Nguồn 5V ngoài + GND chung Pi | Dùng Hardware PWM (kênh 0) |
+| **Servo Barrier (SG90/MG996R)** | **GPIO 12** | Pin 32 | Nguồn 5V ngoài + GND chung Pi | Điều khiển bằng gpiozero `AngularServo` |
 | **Đèn LED Báo Lỗi (+ Trở 220Ω)** | **GPIO 16** | Pin 36 | GND Pi | Sáng 2 giây khi biển số không hợp lệ |
 | **Nút nhấn đăng ký biển số** | **GPIO 20** | Pin 38 | GND (Pin 39) | Pull-up nội, nhấn = nối GND. Nhấn khi biển đang trước camera để đăng ký vào DB |
 | **Camera** | Stream qua mạng LAN | - | Laptop Media Stream Server | URL: `http://10.232.65.44:5000/video_feed` |
@@ -19,28 +19,14 @@ Dự án nhận diện biển số xe tự động điều khiển cổng Barrie
 
 ## 2. Chuẩn Bị & Cấu Hình Raspberry Pi
 
-### Bật PWM Phần Cứng cho Servo
-Thêm cấu hình sau vào file cấu hình boot của Raspberry Pi:
+### Test phần cứng
+Servo, LED và nút nhấn đều dùng thư viện `gpiozero`, không cần cấu hình PWM phần cứng. Nếu trước đây đã thêm dòng `dtoverlay=pwm,pin=12,func=4` vào `/boot/firmware/config.txt` thì xóa dòng đó rồi reboot.
+
+Sau khi cài thư viện (mục 3), kiểm tra đấu nối:
 
 ```bash
-sudo nano /boot/firmware/config.txt
-# (Đối với Raspberry Pi OS cũ là /boot/config.txt)
-```
-
-Thêm dòng sau vào cuối file:
-```ini
-dtoverlay=pwm,pin=12,func=4
-```
-
-Lưu file và khởi động lại Raspberry Pi:
-```bash
-sudo reboot
-```
-
-Sau khi reboot, kiểm tra kênh PWM đã xuất hiện:
-```bash
-ls /sys/class/pwm/
-# Kết quả phải thấy: pwmchip0
+python3 test_hardware.py          # test lần lượt servo, LED, nút
+python3 test_hardware.py servo    # hoặc chỉ test một phần: servo | led | button
 ```
 
 ---

@@ -3,4 +3,3 @@ open-image-models
 fast-plate-ocr
 onnxruntime
 gpiozero
-rpi-hardware-pwm
