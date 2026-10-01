@@ -65,7 +65,6 @@ OCR_MODEL = "cct-xs-v2-global-model"
 MIN_DET_CONF = 0.5
 CONFIRM_FRAMES = 3           # Đọc giống nhau N lần liên tiếp mới chấp nhận
 FUZZY_THRESHOLD = 0.90       # 1.0 = khớp tuyệt đối
-PROCESS_EVERY_N_FRAMES = 4   # Tăng lên để giảm tải CPU
 HOLD_SECONDS = 2             # Giữ kết quả (đúng hay sai đều 2 giây)
 SERVO_RETURN_TIME = 0.6      # Thời gian chờ servo quay về 0
 COOLDOWN = 0                 # Quét tiếp ngay sau khi xong
@@ -424,6 +423,7 @@ class StreamCapture:
         self.url = url
         self.cap = None
         self.frame = None
+        self.frame_id = 0            # Tăng mỗi khi có khung hình mới
         self.running = True
         self.lock = threading.Lock()
         self.thread = threading.Thread(target=self._worker, daemon=True)
@@ -443,6 +443,7 @@ class StreamCapture:
             if ok and f is not None and f.size > 0:
                 with self.lock:
                     self.frame = f
+                    self.frame_id += 1
             else:
                 if self.cap:
                     try:
@@ -458,6 +459,13 @@ class StreamCapture:
                 return True, self.frame.copy()
             return False, None
 
+    def read_new(self, last_id):
+        """Trả về (frame_id, frame) nếu có khung hình mới hơn last_id, ngược lại (last_id, None)."""
+        with self.lock:
+            if self.frame is not None and self.frame_id != last_id:
+                return self.frame_id, self.frame.copy()
+            return last_id, None
+
     def release(self):
         self.running = False
         if self.cap:
@@ -465,6 +473,42 @@ class StreamCapture:
                 self.cap.release()
             except Exception:
                 pass
+
+
+class AsyncRecognizer:
+    """Chạy nhận diện biển số ở luồng nền trên khung hình mới nhất, không chặn luồng hiển thị video."""
+
+    def __init__(self, cap):
+        self.cap = cap
+        self.running = True
+        self.lock = threading.Lock()
+        self.result = (0, None, None, 0.0)   # (seq, text, box, thời điểm)
+        self.thread = threading.Thread(target=self._worker, daemon=True, name="PlateAI")
+        self.thread.start()
+
+    def _worker(self):
+        last_id, seq = 0, 0
+        while self.running:
+            last_id, frame = self.cap.read_new(last_id)
+            if frame is None:
+                time.sleep(0.005)
+                continue
+            try:
+                text, box = recognize(frame)
+            except Exception as e:
+                print(f"[Lỗi nhận diện]: {e}")
+                time.sleep(0.2)
+                continue
+            seq += 1
+            with self.lock:
+                self.result = (seq, text, box, time.time())
+
+    def get(self):
+        with self.lock:
+            return self.result
+
+    def stop(self):
+        self.running = False
 
 
 # ---------------- MAIN ----------------
@@ -497,8 +541,9 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
 
     button = SafeButton(BUTTON_PIN, lambda: run_async(register_plate))
 
+    recognizer = AsyncRecognizer(cap)
     history = deque(maxlen=CONFIRM_FRAMES)
-    frame_count = 0
+    last_seq = 0
     box, live_text, box_time = None, None, 0
     status, status_plate, status_until = None, "", 0
     next_allowed = 0
@@ -511,12 +556,12 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
             if not ok or frame is None:
                 time.sleep(0.01)
                 continue
-            frame_count += 1
             now = time.time()
 
-            if frame_count % PROCESS_EVERY_N_FRAMES == 0:
-                text, b = recognize(frame)
-                box, live_text, box_time = b, text, now
+            seq, text, b, result_time = recognizer.get()
+            if seq != last_seq:
+                last_seq = seq
+                box, live_text, box_time = b, text, result_time
                 history.append(text)
                 if text:
                     last_seen["plate"], last_seen["time"] = text, now
@@ -548,7 +593,7 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
                 draw_ui(frame, show_box, live_text, status, status_plate, status_until)
                 try:
                     cv2.imshow("Nhan dien bien so - Web Dashboard Active", frame)
-                    key = cv2.waitKey(1) & 0xFF
+                    key = cv2.waitKey(15) & 0xFF
                 except cv2.error:
                     print("[*] Không mở được cửa sổ OpenCV GUI, tự động chuyển sang chế độ không màn hình.")
                     SHOW_WINDOW = False
@@ -557,11 +602,12 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
                 if key == ord("q"):
                     break
             else:
-                time.sleep(0.005)
+                time.sleep(0.02)
 
     except KeyboardInterrupt:
         print("\n[*] Đang tắt hệ thống...")
     finally:
+        recognizer.stop()
         button.close()
         cap.release()
         if SHOW_WINDOW:
