@@ -1,8 +1,8 @@
 # alert.py
 """
-Module điều khiển còi báo động (Buzzer) và Đèn cảnh báo (LED).
+Module điều khiển còi báo động (Buzzer) và Động cơ DC.
 - Hỗ trợ Passive Buzzer (PWM) và Active Buzzer trên GPIO BCM 17.
-- Hỗ trợ Đèn LED cảnh báo cháy trên GPIO BCM 27.
+- Hỗ trợ Động cơ DC qua driver L298N (IN1 = GPIO BCM 27, IN2 = GND), chạy khi có cháy.
 - Chạy còi trong luồng nền (non-blocking thread) để không làm đơ camera/vòng lặp AI.
 """
 
@@ -16,13 +16,13 @@ class AlertSystem:
         self.last_alert_time = 0.0
         self.last_fire_time = 0.0
         self.is_buzzing = False
-        self.is_led_on = False
+        self.is_motor_on = False
         self._lock = threading.Lock()
         self._should_buzz = False
         self._buzz_thread = None
         self.has_hardware = False
         self.buzzer = None
-        self.led = None
+        self.motor = None
         self.mode = None
 
         try:
@@ -38,11 +38,11 @@ class AlertSystem:
                 self.buzzer = Buzzer(config.BUZZER_PIN)
                 self.mode = "active"
 
-            from gpiozero import LED
-            self.led = LED(getattr(config, "LED_PIN", 27))
+            from gpiozero import OutputDevice
+            self.motor = OutputDevice(getattr(config, "MOTOR_PIN", 27))
             self.has_hardware = True
             self.platform = "pi"
-            print(f"[Cảnh báo] Đã khởi tạo GPIO: Còi BCM {config.BUZZER_PIN} ({self.mode}), Đèn LED BCM {getattr(config, 'LED_PIN', 27)}")
+            print(f"[Cảnh báo] Đã khởi tạo GPIO: Còi BCM {config.BUZZER_PIN} ({self.mode}), Động cơ DC BCM {getattr(config, 'MOTOR_PIN', 27)}")
         except Exception as e:
             self.platform = "simulation"
             print(f"[Cảnh báo] Chạy chế độ mô phỏng console (không có GPIO: {e}).")
@@ -63,21 +63,21 @@ class AlertSystem:
             else:
                 self.buzzer.off()
 
-    def _led_on(self):
-        """Bật đèn cảnh báo lửa"""
-        if not self.is_led_on:
-            self.is_led_on = True
+    def _motor_on(self):
+        """Bật động cơ DC"""
+        if not self.is_motor_on:
+            self.is_motor_on = True
             if self.has_hardware:
-                self.led.on()
-            print(f"[LED] >>> BẬT ĐÈN CẢNH BÁO LỬA (GPIO {getattr(config, 'LED_PIN', 27)}) <<<")
+                self.motor.on()
+            print(f"[MOTOR] >>> BẬT ĐỘNG CƠ DC (GPIO {getattr(config, 'MOTOR_PIN', 27)}) <<<")
 
-    def _led_off(self):
-        """Tắt đèn cảnh báo lửa"""
-        if self.is_led_on:
-            self.is_led_on = False
+    def _motor_off(self):
+        """Tắt động cơ DC"""
+        if self.is_motor_on:
+            self.is_motor_on = False
             if self.has_hardware:
-                self.led.off()
-            print("[LED] >>> TẮT ĐÈN CẢNH BÁO LỬA <<<")
+                self.motor.off()
+            print("[MOTOR] >>> TẮT ĐỘNG CƠ DC <<<")
 
     def _buzz_sine_worker(self):
         """
@@ -124,16 +124,16 @@ class AlertSystem:
         with self._lock:
             self.is_buzzing = False
 
-    def set_fire_led(self, has_fire: bool):
+    def set_fire_motor(self, has_fire: bool):
         """
-        Điều khiển đèn LED cảnh báo lửa ở GPIO 27:
-        - Đèn CHỈ SÁNG khi nhận diện được lửa trong khung hình.
-        - Khi khung hình không còn nhận diện được lửa, đèn lập tức TẮT ngay.
+        Điều khiển động cơ DC ở GPIO 27:
+        - Động cơ CHỈ CHẠY khi nhận diện được lửa trong khung hình.
+        - Khi khung hình không còn nhận diện được lửa, động cơ lập tức DỪNG ngay.
         """
         if has_fire:
-            self._led_on()
+            self._motor_on()
         else:
-            self._led_off()
+            self._motor_off()
 
     def set_buzzer(self, has_fire: bool):
         """
@@ -177,15 +177,15 @@ class AlertSystem:
     def cleanup(self):
         """Dọn dẹp tài nguyên khi tắt chương trình"""
         self._sound_off()
-        self._led_off()
+        self._motor_off()
         if self.has_hardware:
             if hasattr(self, "buzzer") and self.buzzer:
                 try:
                     self.buzzer.close()
                 except Exception:
                     pass
-            if hasattr(self, "led") and self.led:
+            if hasattr(self, "motor") and self.motor:
                 try:
-                    self.led.close()
+                    self.motor.close()
                 except Exception:
                     pass

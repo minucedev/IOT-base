@@ -20,12 +20,13 @@ DEFAULT_CAMERA_URL = "http://10.232.65.44:5000/video_feed"
 # Đảo kênh màu R-B (False = mặc định BGR chuẩn OpenCV). Có thể bấm phím 'c' khi đang chạy.
 CAMERA_SWAP_RB = False
 
-# Thời gian duy trì đèn LED sáng (giây) sau khi ngọn lửa bị chớp tắt (tránh nhấp nháy gián đoạn)
-HOLD_FIRE_TIME = 1.5
+# Thời gian duy trì động cơ DC chạy (giây) sau khi ngọn lửa bị chớp tắt (tránh bật/tắt gián đoạn)
+HOLD_FIRE_TIME = 1.0
 
-# --- CẤU HÌNH ĐÈN CẢNH BÁO LỬA (LED) TRÊN PI ---
-# Chân BCM GPIO nối đèn LED cảnh báo lửa (BCM 27 = Physical Pin 13)
-LED_PIN = 27
+# --- CẤU HÌNH ĐỘNG CƠ DC TRÊN PI ---
+# Chân BCM GPIO nối IN1 của driver L298N (BCM 27 = Physical Pin 13)
+# IN2 nối GND, giữ jumper ENA -> động cơ chạy 1 chiều, bật/tắt bằng 1 chân.
+MOTOR_PIN = 27
 
 # --- CẤU HÌNH CÒI BUZZER TRÊN PI ---
 # Chân BCM GPIO nối còi buzzer trên Pi (BCM 17 = Physical Pin 11)

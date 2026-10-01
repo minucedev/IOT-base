@@ -1,6 +1,6 @@
 # Hệ Thống Nhận Diện Lửa & Khói Thông Minh (Camera AI + IoT)
 
-Ứng dụng nhận diện ngọn lửa và khói realtime chạy mô hình **YOLOv8 ONNX**, nhận luồng video truyền từ **Laptop Media Stream Server** qua mạng LAN và điều khiển còi hú buzzer + đèn LED cảnh báo trên Raspberry Pi 4.
+Ứng dụng nhận diện ngọn lửa và khói realtime chạy mô hình **YOLOv8 ONNX**, nhận luồng video truyền từ **Laptop Media Stream Server** qua mạng LAN và điều khiển còi hú buzzer + động cơ DC trên Raspberry Pi 4.
 
 ---
 
@@ -9,7 +9,7 @@
 | Thiết bị | Chân tín hiệu | Chân vật lý | Nguồn cấp | Ghi chú |
 | :--- | :--- | :--- | :--- | :--- |
 | **Còi Buzzer (Passive)** | **GPIO 17** | Pin 11 | GND Pi | Còi quét tần số sóng sin 1400-2400Hz (PWM) |
-| **Đèn LED Báo Cháy (+ 220Ω)** | **GPIO 27** | Pin 13 | GND Pi | Sáng khi phát hiện lửa (giữ 1.5s) |
+| **Động cơ DC (qua L298N)** | **GPIO 27** → IN1 | Pin 13 | Nguồn ngoài vào 12V/GND của L298N, chung GND với Pi | IN2 nối GND, giữ jumper ENA, động cơ nối OUT1/OUT2. Chạy khi phát hiện lửa (giữ 1.5s) |
 | **Camera** | Stream qua mạng LAN | - | Laptop Media Server | URL: `http://10.232.65.44:5000/video_feed` |
 
 ---
@@ -59,6 +59,6 @@ python3 main.py --no-window
 ## 4. Tùy Chọn Cấu Hình (`config.py`)
 
 - `CONFIDENCE_THRESHOLD`: Ngưỡng tin cậy kích hoạt cảnh báo lửa (mặc định: `0.30`).
-- `HOLD_FIRE_TIME`: Thời gian giữ đèn LED sáng ổn định (mặc định: `1.5s`).
+- `HOLD_FIRE_TIME`: Thời gian giữ động cơ DC chạy ổn định (mặc định: `1.5s`).
 - `BUZZER_FREQUENCY`: Tần số còi passive (mặc định: `2000Hz`).
 - `SHOW_DISPLAY`: `True` nếu có màn hình hiển thị, `False` nếu chạy headless.

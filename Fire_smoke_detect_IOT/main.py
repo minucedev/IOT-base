@@ -6,7 +6,7 @@ Tối ưu hóa toàn diện cho Raspberry Pi 4 + Arducam IMX519:
 - Chuẩn màu BGR888: Không bị đảo màu, nhận diện chính xác 100% màu đỏ của ngọn lửa.
 - Continuous Autofocus: IMX519 tự động lấy nét sắc nét ở mọi cự ly.
 - Temporal Confirmation: Xác nhận 2 frame liên tiếp mới kích hoạt, loại bỏ 100% báo động giả.
-- Hold Buffer: Duy trì đèn sáng ổn định khi ngọn lửa nhấp nháy, không chập chờn.
+- Hold Buffer: Duy trì động cơ DC chạy ổn định khi ngọn lửa nhấp nháy, không chập chờn.
 """
 
 import os
@@ -92,7 +92,7 @@ def main():
             now = time.time()
 
             # 3. Bộ lọc thời gian thực ổn định (Time-based Stabilization)
-            # Giúp giữ còi/đèn và box mượt mà, loại bỏ 100% hiện tượng chớp tắt liên tục
+            # Giúp giữ còi/động cơ và box mượt mà, loại bỏ 100% hiện tượng chớp tắt liên tục
             if has_fire_now:
                 last_fire_time = now
                 cached_detections = current_detections
@@ -103,8 +103,8 @@ def main():
                     is_fire_confirmed = False
                     cached_detections = []
 
-            # 4. Điều khiển đèn LED GPIO 27 (Sáng ổn định tuyệt đối, không nhấp nháy chập chờn)
-            alert.set_fire_led(is_fire_confirmed)
+            # 4. Điều khiển động cơ DC GPIO 27 (Chạy ổn định, không bật/tắt chập chờn)
+            alert.set_fire_motor(is_fire_confirmed)
 
             # 5. Điều khiển còi sóng sin liên tục theo trạng thái lửa
             alert.set_buzzer(is_fire_confirmed)
