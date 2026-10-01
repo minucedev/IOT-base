@@ -12,6 +12,7 @@ Dự án nhận diện biển số xe tự động điều khiển cổng Barrie
 | :--- | :--- | :--- | :--- | :--- |
 | **Servo Barrier (SG90/MG996R)** | **GPIO 12** | Pin 32 | Nguồn 5V ngoài + GND chung Pi | Dùng Hardware PWM (kênh 0) |
 | **Đèn LED Báo Lỗi (+ Trở 220Ω)** | **GPIO 16** | Pin 36 | GND Pi | Sáng 2 giây khi biển số không hợp lệ |
+| **Nút nhấn đăng ký biển số** | **GPIO 20** | Pin 38 | GND (Pin 39) | Pull-up nội, nhấn = nối GND. Nhấn khi biển đang trước camera để đăng ký vào DB |
 | **Camera** | Stream qua mạng LAN | - | Laptop Media Stream Server | URL: `http://10.232.65.44:5000/video_feed` |
 
 ---
@@ -88,7 +89,8 @@ python3 main_rasp.py --source http://10.232.65.44:5000/video_feed --web-port 808
 python3 main_rasp.py --no-window
 ```
 
-- **OpenCV Window:** Nhấn phím `a` trên cửa sổ video để thêm ngay biển số vừa đọc vào DB; nhấn `q` để thoát.
+- **Nút vật lý:** Đặt biển số trước camera rồi nhấn nút (GPIO20) để đăng ký biển vừa đọc vào DB. Web LCD hiện `DA DANG KY`. Nếu không có biển nào được đọc trong 3 giây gần nhất, LCD hiện `CHUA THAY BIEN`.
+- **OpenCV Window:** Nhấn `q` để thoát.
 - **Web Dashboard:** Mở trình duyệt từ điện thoại, máy tính cùng mạng Wi-Fi/LAN:
   ```
   http://<IP_RASPBERRY_PI>:8080

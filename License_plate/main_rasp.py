@@ -12,6 +12,7 @@ Nhận diện biển số xe realtime trên Raspberry Pi 4 tích hợp Flask Web
 Nối dây:
     Servo tín hiệu -> GPIO12 (chân vật lý 32) | VCC servo -> nguồn 5V ngoài, GND chung với Pi
     LED (+220 ohm) -> GPIO16 (chân vật lý 36)
+    Nút đăng ký -> GPIO20 (chân vật lý 38) và GND (chân 39), dùng pull-up nội
     (Không cần đấu nối LCD I2C)
 
 Cài đặt trên Raspberry Pi:
@@ -28,8 +29,9 @@ Chạy:
     python3 main_rasp.py add 43A12345     # Thêm biển số vào database qua CLI
 
 Phím tắt (khi có cửa sổ video OpenCV):
-    a = thêm biển vừa đọc vào DB
     q = thoát
+
+Đăng ký biển mới: nhấn nút vật lý ở GPIO20 (chân 38, nối xuống GND) khi biển số đang trước camera.
 """
 
 import difflib
@@ -57,6 +59,8 @@ WEB_PORT = 8080              # Cổng Web Dashboard mô phỏng LCD
 SERVO_PWM_CHANNEL = 0
 SERVO_PWM_CHIP = 0           # Pi 4 = 0, Pi 5 = 2
 LED_PIN = 16                 # GPIO16 = chân vật lý 36
+BUTTON_PIN = 20              # GPIO20 = chân vật lý 38, nút đăng ký biển số (nối xuống GND)
+REGISTER_WINDOW = 3.0        # Chỉ đăng ký biển đọc được trong N giây gần nhất
 
 DETECTOR_MODEL = "yolo-v9-t-384-license-plate-end2end"
 OCR_MODEL = "cct-xs-v2-global-model"
@@ -220,6 +224,26 @@ class SafeLED:
             self.led.off()
 
 
+class SafeButton:
+    """Nút nhấn vật lý (pull-up nội, nhấn = nối GND), bắt lỗi khi chạy ngoài Raspberry Pi."""
+
+    def __init__(self, pin, on_press):
+        self.button = None
+        try:
+            from gpiozero import Button
+            self.button = Button(pin, pull_up=True, bounce_time=0.05)
+            self.button.when_pressed = on_press
+        except Exception as e:
+            print(f"[CẢNH BÁO] Không khởi tạo được nút GPIO {pin}: {e}. Không thể đăng ký bằng nút.")
+
+    def close(self):
+        if self.button:
+            try:
+                self.button.close()
+            except Exception:
+                pass
+
+
 servo = HwServo(channel=SERVO_PWM_CHANNEL, chip=SERVO_PWM_CHIP)
 led = SafeLED(LED_PIN)
 hw_lock = threading.Lock()   # Tránh các luồng điều khiển phần cứng chồng chéo nhau
@@ -273,6 +297,32 @@ def deny_access(plate):
         led.on()
         time.sleep(HOLD_SECONDS)
         led.off()
+        show_idle()
+
+
+last_seen = {"plate": None, "time": 0.0}   # Biển đọc gần nhất, dùng cho nút đăng ký
+
+
+def register_plate():
+    """Gọi khi nhấn nút vật lý: đăng ký biển vừa đọc được vào DB."""
+    plate = last_seen["plate"]
+    if not plate or time.time() - last_seen["time"] > REGISTER_WINDOW:
+        print("[!] Nhấn nút nhưng chưa đọc được biển số nào, bỏ qua.")
+        with hw_lock:
+            web_state.update(line1="CHUA THAY BIEN", line2="", status="FAIL")
+            time.sleep(1.5)
+            show_idle()
+        return
+
+    conn = init_db()             # Kết nối riêng vì callback chạy ở luồng khác luồng chính
+    try:
+        add_plate(conn, plate)
+    finally:
+        conn.close()
+    print("Đã đăng ký biển số mới:", plate)
+    with hw_lock:
+        web_state.update(line1="DA DANG KY", line2=plate, status="OK", plate=plate)
+        time.sleep(HOLD_SECONDS)
         show_idle()
 
 
@@ -455,10 +505,11 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
     led.off()
     show_idle()
 
+    button = SafeButton(BUTTON_PIN, lambda: run_async(register_plate))
+
     history = deque(maxlen=CONFIRM_FRAMES)
     frame_count = 0
     box, live_text, box_time = None, None, 0
-    last_seen = None
     status, status_plate, status_until = None, "", 0
     next_allowed = 0
     print(f"[*] Hệ thống sẵn sàng nhận diện từ nguồn: {camera_url}")
@@ -478,7 +529,7 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
                 box, live_text, box_time = b, text, now
                 history.append(text)
                 if text:
-                    last_seen = text
+                    last_seen["plate"], last_seen["time"] = text, now
 
                 if (
                     now >= next_allowed
@@ -515,15 +566,13 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
 
                 if key == ord("q"):
                     break
-                if key == ord("a") and last_seen:
-                    add_plate(conn, last_seen)
-                    print("Đã thêm vào DB:", last_seen)
             else:
                 time.sleep(0.005)
 
     except KeyboardInterrupt:
         print("\n[*] Đang tắt hệ thống...")
     finally:
+        button.close()
         cap.release()
         if SHOW_WINDOW:
             try:
