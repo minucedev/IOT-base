@@ -66,7 +66,7 @@ MIN_DET_CONF = 0.5
 CONFIRM_FRAMES = 3           # Đọc giống nhau N lần liên tiếp mới chấp nhận
 FUZZY_THRESHOLD = 0.90       # 1.0 = khớp tuyệt đối
 HOLD_SECONDS = 2             # Giữ kết quả (đúng hay sai đều 2 giây)
-SERVO_RETURN_TIME = 0.6      # Thời gian chờ servo quay về 0
+SERVO_RETURN_TIME = 0.6      # Thời gian chờ servo quay hết hành trình 0 <-> 180
 COOLDOWN = 0                 # Quét tiếp ngay sau khi xong
 # ------------------------------------------
 
@@ -264,6 +264,8 @@ def grant_access(plate):
         servo.angle = 0
         time.sleep(0.3)
         servo.angle = 180
+        time.sleep(SERVO_RETURN_TIME)
+        servo.detach()           # Ngắt xung trong lúc giữ mở để servo không giật tại chỗ
         time.sleep(HOLD_SECONDS)
         servo.angle = 0
         time.sleep(SERVO_RETURN_TIME)
@@ -578,7 +580,7 @@ def main(camera_url=DEFAULT_CAMERA_URL, web_port=WEB_PORT, show_gui=SHOW_WINDOW)
                         status, status_plate = "OK", matched
                         print(f"  -> HỢP LỆ ({matched}) | Servo 0 -> 180 -> 0 | Web LCD cập nhật")
                         run_async(grant_access, matched)
-                        hold = HOLD_SECONDS + SERVO_RETURN_TIME + 0.3
+                        hold = HOLD_SECONDS + 2 * SERVO_RETURN_TIME + 0.3
                     else:
                         status, status_plate = "FAIL", text
                         print(f"  -> KHÔNG CÓ TRONG DB ({text}) | LED bật | Web LCD cập nhật")
