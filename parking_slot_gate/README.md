@@ -67,7 +67,7 @@ python raspberry_parking_yolov8n_1280_speaker_jpg.py --once
 # Chạy thật với cảm biến + servo + LCD
 python raspberry_parking_yolov8n_1280_speaker_jpg.py --sensor-debug
 
-# Thêm loa laptop (trên laptop chạy trước: python3 laptop_speaker.py)
+# Thêm loa laptop (trên laptop: pip install gTTS; sudo apt install mpg123; python3 laptop_speaker.py)
 python raspberry_parking_yolov8n_1280_speaker_jpg.py --speaker-url http://IP_LAPTOP:8765/speak
 ```
 ### Demo 2 trạng thái (ảnh cắt đôi 500x750)
