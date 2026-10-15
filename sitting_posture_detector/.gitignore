@@ -1,6 +1,6 @@
 __pycache__/
 *.py[cod]
-*.onnx
+# *.onnx
 *.pt
 .venv/
 venv/
@@ -10,4 +10,5 @@ venv/
 *.log
 .vscode/
 .idea/
-!models/.gitkeep
+# !models/
+.gitkeep
