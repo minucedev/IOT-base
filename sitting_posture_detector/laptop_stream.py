@@ -16,18 +16,24 @@ _lock = threading.Condition()
 _jpeg = None
 
 
-def capture(cam: int, width: int, height: int, quality: int) -> None:
+def capture(cam: int, width: int, height: int, quality: int, fps: float) -> None:
     global _jpeg
     cap = cv2.VideoCapture(cam)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    cap.set(cv2.CAP_PROP_FPS, fps)
     params = [cv2.IMWRITE_JPEG_QUALITY, quality]
+    interval, next_t = 1.0 / fps, time.monotonic()
     while True:
         ok, frame = cap.read()
         if not ok:
             time.sleep(0.1)
             continue
         frame = cv2.flip(frame, 1)  # lật ngang để giống gương
+        now = time.monotonic()
+        if now < next_t:  # bỏ frame thừa để giữ đúng FPS
+            continue
+        next_t = max(next_t + interval, now)
         ok, buf = cv2.imencode(".jpg", frame, params)
         if ok:
             with _lock:
@@ -53,7 +59,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\n"
                                  b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n"
                                  + data + b"\r\n")
-        except (BrokenPipeError, ConnectionResetError):
+        except (ConnectionError, OSError):  # client (Pi) ngắt kết nối
             pass
 
     def log_message(self, *_):
@@ -67,7 +73,8 @@ if __name__ == "__main__":
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--height", type=int, default=480)
     ap.add_argument("--quality", type=int, default=80)
+    ap.add_argument("--fps", type=float, default=15)
     a = ap.parse_args()
-    threading.Thread(target=capture, args=(a.cam, a.width, a.height, a.quality), daemon=True).start()
-    print(f"Đang phát: http://<ip-laptop>:{a.port}/video  (Ctrl+C để dừng)")
+    threading.Thread(target=capture, args=(a.cam, a.width, a.height, a.quality, a.fps), daemon=True).start()
+    print(f"Đang phát {a.fps:g} FPS: http://<ip-laptop>:{a.port}/video  (Ctrl+C để dừng)")
     ThreadingHTTPServer(("0.0.0.0", a.port), Handler).serve_forever()
