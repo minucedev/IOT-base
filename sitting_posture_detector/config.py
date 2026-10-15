@@ -42,7 +42,7 @@ TRUNK_LEAN_MAX_DEG = 15.0        # Góc (hông->vai) lệch phương thẳng đ�
 SHOULDER_TILT_MAX_DEG = 10.0     # Chỉ dùng khi nhìn chính diện: vai lệch ngang > ngưỡng -> nghiêng
 
 # ----------------------------- Cảnh báo ------------------------------
-BAD_POSTURE_HOLD_SEC = 1.0       # Sai tư thế liên tục bao lâu thì còi kêu
+BAD_POSTURE_HOLD_SEC = 1.0       # Sai tư thế liên tục bao lâu thì loa laptop kêu
 
 # ----------------------------- GPIO (BCM) ----------------------------
 # Mỗi trạng thái một LED
@@ -52,10 +52,6 @@ LED_PINS = {
     STATUS_LEAN: 22,             # Nghiêng - chân vật lý 15
     STATUS_HEAD_DOWN: 23,        # Cúi đầu - chân vật lý 16
 }
-BUZZER_PIN = 24                  # Chân vật lý 18 (buzzer active)
-BUZZER_ENABLED = True
-BUZZER_ON_SEC = 0.2              # Kêu bíp 0.2s
-BUZZER_OFF_SEC = 0.3             # nghỉ 0.3s, lặp lại khi còn sai tư thế
 
 # ----------------------------- Web -----------------------------------
 WEB_HOST = "0.0.0.0"

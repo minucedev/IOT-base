@@ -1,4 +1,5 @@
-"""Logic cảnh báo: màu overlay + 4 LED trạng thái + buzzer qua GPIO (gpiozero)."""
+"""Logic cảnh báo: màu overlay + 4 LED trạng thái qua GPIO (gpiozero).
+Còi được phát bằng loa laptop (laptop_stream.py đọc trường alert từ /api/status)."""
 from __future__ import annotations
 
 import logging
@@ -37,33 +38,6 @@ class _Led:
             self._led.close()
 
 
-class _Buzzer:
-    """Bọc gpiozero.Buzzer (buzzer active); kêu bíp ngắt quãng khi bật. No-op nếu không có GPIO."""
-
-    def __init__(self, pin: int) -> None:
-        self._bz, self._on = None, False
-        try:
-            from gpiozero import Buzzer
-            self._bz = Buzzer(pin)
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Buzzer (GPIO%d) không khả dụng, chạy chế độ giả lập: %s", pin, exc)
-
-    def set(self, on: bool) -> None:
-        if self._bz is None or on == self._on:
-            return
-        self._on = on
-        if on:
-            self._bz.beep(on_time=config.BUZZER_ON_SEC, off_time=config.BUZZER_OFF_SEC,
-                          background=True)
-        else:
-            self._bz.off()
-
-    def close(self) -> None:
-        if self._bz is not None:
-            self._bz.off()
-            self._bz.close()
-
-
 @dataclass
 class AlertState:
     status: str
@@ -75,11 +49,10 @@ class AlertState:
 
 class AlertManager:
     """Mỗi trạng thái (GOOD/SLOUCH/LEAN/HEAD_DOWN) một LED, sáng theo trạng thái hiện tại.
-    Buzzer kêu khi sai tư thế (bất kỳ loại nào) liên tục >= BAD_POSTURE_HOLD_SEC."""
+    Bật alert (loa laptop kêu) khi sai tư thế (bất kỳ loại nào) liên tục >= BAD_POSTURE_HOLD_SEC."""
 
     def __init__(self) -> None:
         self.leds = {status: _Led(pin, status) for status, pin in config.LED_PINS.items()}
-        self.buzzer = _Buzzer(config.BUZZER_PIN)
         self._bad_since: Optional[float] = None
 
     def update(self, status: str, now: Optional[float] = None) -> AlertState:
@@ -97,7 +70,6 @@ class AlertManager:
         led_states = {name: name == status for name in self.leds}
         for name, led in self.leds.items():
             led.set(led_states[name])
-        self.buzzer.set(alerting and config.BUZZER_ENABLED)
 
         if status in config.BAD_STATUSES:
             color = COLOR_BAD
@@ -110,4 +82,3 @@ class AlertManager:
     def close(self) -> None:
         for led in self.leds.values():
             led.close()
-        self.buzzer.close()
