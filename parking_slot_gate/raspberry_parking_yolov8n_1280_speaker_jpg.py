@@ -28,6 +28,7 @@ import os
 import queue
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -662,17 +663,14 @@ class AudioNotifier:
     Network/TTS is isolated from the GPIO state machine by a small queue.
     No audio failure may change the gate decision.
     """
-    def __init__(self, speaker_url=None, token=None, local_voice=False):
+    def __init__(self, speaker_url=None, local_voice=False):
         self.speaker_url = (speaker_url or "").strip()
-        self.token = token or ""
         self.local_voice = bool(local_voice and not self.speaker_url)
         self.enabled = bool(self.speaker_url or self.local_voice)
         if self.speaker_url:
             parsed = urlsplit(self.speaker_url)
             if parsed.scheme != "http" or not parsed.netloc or parsed.path != "/speak":
                 raise ValueError("--speaker-url cần dạng http://IP_LAPTOP:8765/speak")
-            if not self.token:
-                raise ValueError("Hãy đặt PARKING_SPEAKER_TOKEN trên Raspberry Pi và laptop.")
         if self.local_voice and shutil.which("espeak-ng") is None:
             raise RuntimeError("Không thấy espeak-ng trên Raspberry Pi; hoặc hãy dùng --speaker-url.")
         self.messages = queue.Queue(maxsize=8)
@@ -687,8 +685,7 @@ class AudioNotifier:
                 req = urllib.request.Request(
                     self.speaker_url,
                     data=body,
-                    headers={"Content-Type": "application/json; charset=utf-8",
-                             "X-Parking-Token": self.token},
+                    headers={"Content-Type": "application/json; charset=utf-8"},
                     method="POST",
                 )
                 with urllib.request.urlopen(req, timeout=3) as response:
@@ -855,13 +852,39 @@ def run_loop(detector, hw, notifier, sensor_debug=True,
         hw.close()
 
 
+# Ảnh demo: tên -> (ảnh, slots)
+SCENES = {
+    "goc": ("parking.jpg", "slots.json"),
+    "trong": ("parking_left_empty.jpg", "slots_left.json"),
+    "day": ("parking_right_full.jpg", "slots_right.json"),
+}
+
+
+def choose_scene():
+    """Hỏi người dùng chọn ảnh khi không truyền --scene/--image."""
+    names = list(SCENES)
+    print("Chọn ảnh bãi đỗ:")
+    for i, name in enumerate(names, 1):
+        print(f"  {i}. {name:<6} {SCENES[name][0]}")
+    if not sys.stdin.isatty():
+        return "goc"
+    choice = input("Nhập số [1]: ").strip() or "1"
+    if choice in names:
+        return choice
+    if choice.isdigit() and 1 <= int(choice) <= len(names):
+        return names[int(choice) - 1]
+    raise SystemExit(f"Lựa chọn không hợp lệ: {choice}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Raspberry Pi: 143 ô đỗ + YOLOv8n ONNX 1280")
-    parser.add_argument("--image", default="parking.jpg", help="Ảnh JPG hoặc PNG, ví dụ parking_full_01.jpg")
+    parser.add_argument("--scene", choices=list(SCENES),
+                        help="Ảnh demo: goc (cả bãi), trong (còn chỗ), day (hết chỗ); bỏ trống để chọn khi chạy")
+    parser.add_argument("--image", default=None, help="Ảnh JPG hoặc PNG, ví dụ parking_full_01.jpg")
     parser.add_argument("--slots-reference-size", type=parse_reference_size, default=None,
                         help="Kích thước ảnh gốc khi tạo slots.json, ví dụ 2390x1792; "
                              "tự co giãn polygon nếu ảnh mới có kích thước khác")
-    parser.add_argument("--slots", default="slots.json", help="File polygons {id, polygon}")
+    parser.add_argument("--slots", default=None, help="File polygons {id, polygon}")
     parser.add_argument("--model", default="yolov8n_640.onnx", help="YOLOv8n ONNX detect COCO (file kèm theo là 640)")
     parser.add_argument("--confidence", type=float, default=0.03, help="YOLO confidence")
     parser.add_argument("--iou", type=float, default=0.70, help="NMS IoU threshold")
@@ -872,8 +895,6 @@ def main():
     parser.add_argument("--voice", action="store_true", help="Dùng espeak-ng ngay trên Pi (không dùng laptop)")
     parser.add_argument("--speaker-url", default="",
                         help="Địa chỉ loa Ubuntu: http://IP_LAPTOP:8765/speak")
-    parser.add_argument("--speaker-token", default=os.environ.get("PARKING_SPEAKER_TOKEN", ""),
-                        help="Token xác thực; nên đặt bằng biến môi trường PARKING_SPEAKER_TOKEN")
     parser.add_argument("--test-speaker", action="store_true",
                         help="Thử loa laptop ngay, KHÔNG load YOLO, KHÔNG bật GPIO")
     parser.add_argument("--announce-once", action="store_true",
@@ -892,8 +913,7 @@ def main():
     parser.add_argument("--allow-zero-vehicles", action="store_true",
                         help="Chỉ dành cho ảnh bãi trống thực sự; bỏ chặn 0 detection")
     args = parser.parse_args()
-    notifier = AudioNotifier(speaker_url=args.speaker_url,
-                             token=args.speaker_token, local_voice=args.voice)
+    notifier = AudioNotifier(speaker_url=args.speaker_url, local_voice=args.voice)
     if args.test_speaker:
         if not notifier.enabled:
             parser.error("--test-speaker cần --speaker-url hoặc --voice")
@@ -901,6 +921,13 @@ def main():
         if not ok:
             raise SystemExit(1)
         return
+
+    if args.image is None:
+        scene = args.scene or choose_scene()
+        args.image, scene_slots = SCENES[scene]
+        args.slots = args.slots or scene_slots
+    args.slots = args.slots or "slots.json"
+    print(f"[ẢNH] {args.image}  |  [SLOTS] {args.slots}")
 
     detector = ParkingDetector(args.image, args.slots, args.model,
                                args.confidence, args.imgsz, args.output,

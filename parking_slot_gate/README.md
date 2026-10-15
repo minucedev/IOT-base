@@ -10,6 +10,8 @@ Hết chỗ: servo đóng, LED đỏ, LCD "BAI DA DAY".
 | `raspberry_parking_yolov8n_1280_speaker_jpg.py` | Chương trình chính chạy trên Raspberry Pi |
 | `slots.json` | 27 ô đỗ (polygon theo ảnh 1000x750) |
 | `parking.jpg` | Ảnh bãi đỗ dùng làm đề tài |
+| `parking_left_empty.jpg` + `slots_left.json` | Demo còn chỗ (18 ô A, B) |
+| `parking_right_full.jpg` + `slots_right.json` | Demo hết chỗ (9 ô C) |
 | `yolov8n_640.onnx` | Model YOLOv8n COCO (input 640, float16) |
 | `laptop_speaker.py` | (tuỳ chọn) Loa đọc thông báo trên laptop Ubuntu |
 
@@ -65,10 +67,19 @@ python raspberry_parking_yolov8n_1280_speaker_jpg.py --once
 # Chạy thật với cảm biến + servo + LCD
 python raspberry_parking_yolov8n_1280_speaker_jpg.py --sensor-debug
 
-# Thêm loa laptop (chạy laptop_speaker.py trên laptop trước, cùng PARKING_SPEAKER_TOKEN)
-export PARKING_SPEAKER_TOKEN='chuoi-bi-mat-dai'
+# Thêm loa laptop (trên laptop chạy trước: python3 laptop_speaker.py)
 python raspberry_parking_yolov8n_1280_speaker_jpg.py --speaker-url http://IP_LAPTOP:8765/speak
 ```
+### Demo 2 trạng thái (ảnh cắt đôi 500x750)
+Không truyền `--scene`/`--image` thì chương trình hỏi chọn ảnh khi chạy. Hoặc chọn sẵn:
+```bash
+python raspberry_parking_yolov8n_1280_speaker_jpg.py --once --scene trong   # còn chỗ: ô A1–A9, B1–B9
+python raspberry_parking_yolov8n_1280_speaker_jpg.py --once --scene day     # hết chỗ: ô C1–C9
+python raspberry_parking_yolov8n_1280_speaker_jpg.py --once --scene goc     # ảnh gốc 27 ô
+```
+`slots_check_left.jpg` / `slots_check_right.jpg`: ảnh vẽ khung ô để kiểm tra polygon.
+Bỏ `--once` để chạy thật với servo: ảnh trái → mở cổng, ảnh phải → "BAI DA DAY".
+
 LCD địa chỉ 0x3F: thêm `--lcd-address 0x3F`.
 
 ## Tham số nên chỉnh khi đổi ảnh / camera
