@@ -1,17 +1,13 @@
-"""Chạy trên LAPTOP: phát webcam thành luồng MJPEG để Raspberry Pi đọc,
-đồng thời hỏi trạng thái từ Pi và kêu bíp qua loa laptop khi sai tư thế.
+"""Chạy trên LAPTOP: phát webcam thành luồng MJPEG để Raspberry Pi đọc.
 
     pip install opencv-python
-    python laptop_stream.py --port 8080 --cam 0 --pi 192.168.1.50
+    python laptop_stream.py --port 8080 --cam 0
 
 Pi đặt CAMERA_SOURCE = "http://<ip-laptop>:8080/video" trong config.py.
 """
 import argparse
-import json
-import sys
 import threading
 import time
-import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import cv2
@@ -37,34 +33,6 @@ def capture(cam: int, width: int, height: int, quality: int) -> None:
             with _lock:
                 _jpeg = buf.tobytes()
                 _lock.notify_all()
-
-
-def _beep(freq: int, ms: int) -> None:
-    if sys.platform == "win32":
-        import winsound
-        winsound.Beep(freq, ms)
-    else:
-        sys.stdout.write("")
-        sys.stdout.flush()
-        time.sleep(ms / 1000)
-
-
-def alarm(pi_host: str, freq: int, beep_ms: int, pause_ms: int) -> None:
-    """Hỏi /api/status của Pi; khi alert=true thì kêu bíp ngắt quãng qua loa laptop."""
-    url = f"http://{pi_host}/api/status"
-    while True:
-        try:
-            with urllib.request.urlopen(url, timeout=2) as r:
-                alert = json.load(r).get("alert", False)
-        except Exception as exc:  # noqa: BLE001
-            print(f"Không lấy được trạng thái từ {url}: {exc}")
-            time.sleep(2)
-            continue
-        if alert:
-            _beep(freq, beep_ms)
-            time.sleep(pause_ms / 1000)
-        else:
-            time.sleep(0.2)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -99,14 +67,7 @@ if __name__ == "__main__":
     ap.add_argument("--width", type=int, default=640)
     ap.add_argument("--height", type=int, default=480)
     ap.add_argument("--quality", type=int, default=80)
-    ap.add_argument("--pi", help="IP[:port] của Pi để bật còi, vd 192.168.1.50 (bỏ trống = không kêu)")
-    ap.add_argument("--freq", type=int, default=1000, help="Tần số bíp (Hz)")
-    ap.add_argument("--beep-ms", type=int, default=200)
-    ap.add_argument("--pause-ms", type=int, default=300)
     a = ap.parse_args()
-    if a.pi:
-        host = a.pi if ":" in a.pi else f"{a.pi}:5000"
-        threading.Thread(target=alarm, args=(host, a.freq, a.beep_ms, a.pause_ms), daemon=True).start()
     threading.Thread(target=capture, args=(a.cam, a.width, a.height, a.quality), daemon=True).start()
     print(f"Đang phát: http://<ip-laptop>:{a.port}/video  (Ctrl+C để dừng)")
     ThreadingHTTPServer(("0.0.0.0", a.port), Handler).serve_forever()

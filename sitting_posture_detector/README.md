@@ -1,7 +1,7 @@
 # Posture Monitor (Raspberry Pi + YOLOv8n-pose ONNX)
 
 Giám sát tư thế ngồi theo thời gian thực: webcam laptop (stream MJPEG qua mạng) → YOLOv8n-pose (ONNX Runtime) →
-tính góc Tai-Vai-Hông → overlay + 4 LED trạng thái + còi qua loa laptop + web stream MJPEG.
+tính góc Tai-Vai-Hông → overlay + 4 LED trạng thái + còi PWM + web stream MJPEG.
 
 ## 1. Phần cứng
 
@@ -11,9 +11,10 @@ tính góc Tai-Vai-Hông → overlay + 4 LED trạng thái + còi qua loa laptop
 | LED Gù - SLOUCH (anode, qua điện trở) | GPIO27 (chân vật lý 13) |
 | LED Nghiêng - LEAN (anode, qua điện trở) | GPIO22 (chân vật lý 15) |
 | LED Cúi đầu - HEAD_DOWN (anode, qua điện trở) | GPIO23 (chân vật lý 16) |
-| Catode các LED | GND (chân vật lý 9, 14 hoặc 20) |
+| Còi passive (chân +) | GPIO24 (chân vật lý 18), điều khiển PWM |
+| Catode các LED, chân − còi | GND (chân vật lý 9, 14 hoặc 20) |
 
-Đổi chân trong `config.py` (`LED_PINS`, đánh số BCM).
+Đổi chân trong `config.py` (`LED_PINS`, `BUZZER_PIN`, đánh số BCM).
 
 **Đặt camera:** nhìn ngang từ bên cạnh (~90°) ở độ cao vai/đầu, thấy rõ một bên tai–vai–hông.
 Nhìn chính diện chỉ đo được độ nghiêng vai, không đo được gù/cúi.
@@ -48,11 +49,10 @@ Cần tốc độ cao hơn: export `imgsz=320` (hoặc `imgsz=416`). `detector.p
 
 ```bash
 pip install opencv-python
-python laptop_stream.py --port 8080 --cam 0 --pi <ip-pi>
+python laptop_stream.py --port 8080 --cam 0
 ```
 
 Kiểm tra bằng trình duyệt: `http://<ip-laptop>:8080/video`. Trên Windows nhớ cho phép Python qua Firewall.
-`--pi` để laptop kêu bíp khi sai tư thế (chỉnh tiếng: `--freq`, `--beep-ms`, `--pause-ms`).
 
 **Trên Pi** — đặt `CAMERA_SOURCE = "http://<ip-laptop>:8080/video"` trong `config.py`, rồi:
 
@@ -83,7 +83,7 @@ diện mới nhất. Chất lượng JPEG mặc định là 70 trong `config.py`
 | Cúi đầu (HEAD_DOWN) | Góc vai→tai lệch phương thẳng đứng > 30° |
 | Nghiêng (LEAN) | Góc hông→vai lệch phương thẳng > 15°, hoặc vai lệch ngang > 10° (nhìn chính diện) |
 
-Mỗi LED sáng theo trạng thái hiện tại. Cả 3 tư thế sai đều làm loa laptop kêu khi sai liên tục
+Mỗi LED sáng theo trạng thái hiện tại. Cả 3 tư thế sai đều làm còi kêu (PWM `BUZZER_FREQ` Hz, duty `BUZZER_DUTY`) khi sai liên tục
 ≥ `BAD_POSTURE_HOLD_SEC` (1 s); ngồi đúng lại thì tắt ngay. Không thấy người: tắt hết.
 **Các ngưỡng là điểm khởi đầu** — hãy ngồi tư thế chuẩn, xem số góc trên web rồi chỉnh theo bạn.
 

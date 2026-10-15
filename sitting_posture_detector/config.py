@@ -15,7 +15,7 @@ ORT_PROVIDERS = ["CPUExecutionProvider"]
 # ----------------------------- Camera --------------------------------
 # Nguồn video: URL stream từ laptop (chạy laptop_stream.py trên laptop),
 # hoặc số 0 để dùng webcam USB cắm trực tiếp.
-CAMERA_SOURCE = "http://192.168.1.100:8080/video"   # đổi thành IP laptop
+CAMERA_SOURCE = "http://172.31.114.91:8080/video"   # đổi thành IP laptop
 CAMERA_RESOLUTION = (640, 480)   # frame được resize về kích thước này
 CAMERA_RECONNECT_SEC = 2.0       # chờ trước khi kết nối lại khi mất stream
 CAMERA_HFLIP = False
@@ -42,7 +42,7 @@ TRUNK_LEAN_MAX_DEG = 15.0        # Góc (hông->vai) lệch phương thẳng đ�
 SHOULDER_TILT_MAX_DEG = 10.0     # Chỉ dùng khi nhìn chính diện: vai lệch ngang > ngưỡng -> nghiêng
 
 # ----------------------------- Cảnh báo ------------------------------
-BAD_POSTURE_HOLD_SEC = 1.0       # Sai tư thế liên tục bao lâu thì loa laptop kêu
+BAD_POSTURE_HOLD_SEC = 1.0       # Sai tư thế liên tục bao lâu thì còi kêu
 
 # ----------------------------- GPIO (BCM) ----------------------------
 # Mỗi trạng thái một LED
@@ -52,6 +52,12 @@ LED_PINS = {
     STATUS_LEAN: 22,             # Nghiêng - chân vật lý 15
     STATUS_HEAD_DOWN: 23,        # Cúi đầu - chân vật lý 16
 }
+BUZZER_PIN = 24                  # Chân vật lý 18 (còi passive, điều khiển PWM)
+BUZZER_ENABLED = True
+BUZZER_FREQ = 2000               # Tần số PWM (Hz) = cao độ tiếng còi
+BUZZER_DUTY = 0.5                # value khi bật (0.5 = to nhất với còi passive)
+BUZZER_ON_SEC = 0.2              # Kêu 0.2s
+BUZZER_OFF_SEC = 0.3             # nghỉ 0.3s, lặp lại khi còn sai tư thế
 
 # ----------------------------- Web -----------------------------------
 WEB_HOST = "0.0.0.0"
