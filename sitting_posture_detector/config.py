@@ -13,11 +13,13 @@ ORT_NUM_THREADS = 4           # Pi 4/5 có 4 nhân
 ORT_PROVIDERS = ["CPUExecutionProvider"]
 
 # ----------------------------- Camera --------------------------------
-CAMERA_RESOLUTION = (640, 480)   # hoặc (1280, 720)
-CAMERA_FPS = 30
+# Nguồn video: URL stream từ laptop (chạy laptop_stream.py trên laptop),
+# hoặc số 0 để dùng webcam USB cắm trực tiếp.
+CAMERA_SOURCE = "http://192.168.1.100:8080/video"   # đổi thành IP laptop
+CAMERA_RESOLUTION = (640, 480)   # frame được resize về kích thước này
+CAMERA_RECONNECT_SEC = 2.0       # chờ trước khi kết nối lại khi mất stream
 CAMERA_HFLIP = False
 CAMERA_VFLIP = False
-ALLOW_WEBCAM_FALLBACK = False    # True: dùng cv2.VideoCapture(0) khi dev trên PC
 
 # ----------------------------- Inference -----------------------------
 INFERENCE_MAX_FPS = 15           # Giới hạn để tránh nghẽn CPU

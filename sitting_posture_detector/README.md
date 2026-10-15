@@ -1,6 +1,6 @@
 # Posture Monitor (Raspberry Pi + YOLOv8n-pose ONNX)
 
-Giám sát tư thế ngồi theo thời gian thực: Pi Camera (OV5647/CSI) → YOLOv8n-pose (ONNX Runtime) →
+Giám sát tư thế ngồi theo thời gian thực: webcam laptop (stream MJPEG qua mạng) → YOLOv8n-pose (ONNX Runtime) →
 tính góc Tai-Vai-Hông → overlay + 4 LED trạng thái + buzzer + web stream MJPEG.
 
 ## 1. Phần cứng
@@ -13,7 +13,6 @@ tính góc Tai-Vai-Hông → overlay + 4 LED trạng thái + buzzer + web stream
 | LED Cúi đầu - HEAD_DOWN (anode, qua điện trở) | GPIO23 (chân vật lý 16) |
 | Buzzer active (chân +) | GPIO24 (chân vật lý 18) |
 | Catode các LED, chân − buzzer | GND (chân vật lý 9, 14 hoặc 20) |
-| Camera OV5647 | Cổng CSI (cáp ribbon, mặt đồng tiếp xúc đúng chiều, tắt nguồn khi cắm) |
 
 Đổi chân trong `config.py` (`LED_PINS`, `BUZZER_PIN`, đánh số BCM).
 
@@ -24,11 +23,10 @@ Nhìn chính diện chỉ đo được độ nghiêng vai, không đo được g
 
 ```bash
 sudo apt update
-sudo apt install -y python3-picamera2 python3-venv python3-pip
-rpicam-hello -t 3000          # kiểm tra camera hoạt động
+sudo apt install -y python3-venv python3-pip
 
 cd posture-monitor
-python3 -m venv --system-site-packages .venv   # bắt buộc để thấy picamera2 từ apt
+python3 -m venv --system-site-packages .venv   # để dùng gpiozero/lgpio cài sẵn từ apt
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
@@ -47,9 +45,22 @@ Cần tốc độ cao hơn: export `imgsz=320` (hoặc `imgsz=416`). `detector.p
 
 ## 4. Chạy
 
+**Trên laptop** (cùng mạng LAN với Pi) — phát webcam:
+
+```bash
+pip install opencv-python
+python laptop_stream.py --port 8080 --cam 0
+```
+
+Kiểm tra bằng trình duyệt: `http://<ip-laptop>:8080/video`. Trên Windows nhớ cho phép Python qua Firewall.
+
+**Trên Pi** — đặt `CAMERA_SOURCE = "http://<ip-laptop>:8080/video"` trong `config.py`, rồi:
+
 ```bash
 python app.py
 ```
+
+Mất stream thì Pi tự kết nối lại sau `CAMERA_RECONNECT_SEC`.
 
 Mở `http://<ip-của-pi>:5000`. Dừng bằng `Ctrl+C`.
 
@@ -101,10 +112,8 @@ sudo systemctl enable --now posture.service
 
 ## 7. Xử lý sự cố
 
-- **`No module named picamera2`**: venv thiếu `--system-site-packages`.
-- **Màu bị đảo xanh/đỏ**: Picamera2 `RGB888` đã là thứ tự BGR của OpenCV; đừng `cvtColor` thêm.
 - **FPS thấp**: export model `imgsz=320`, giảm `CAMERA_RESOLUTION`, hạ `INFERENCE_MAX_FPS`.
-- **`Camera frontend has timed out` sau khi camera bị rung/di chuyển**: tắt nguồn Pi, kiểm tra và cắm lại cáp ribbon CSI ở cả camera lẫn Pi, đúng chiều và khóa giữ cáp; thử cáp khác nếu vẫn timeout. Đây thường là lỗi tiếp xúc phần cứng, không thể khắc phục chỉ bằng cấu hình web.
+- **`Không mở được nguồn video`**: kiểm tra IP laptop, `laptop_stream.py` đang chạy, Firewall Windows, Pi và laptop cùng mạng.
 - **LED không sáng**: kiểm tra chiều LED, điện trở, chân BCM; log sẽ báo "chế độ giả lập" nếu GPIO lỗi.
 - **Ảnh ngược**: đặt `CAMERA_HFLIP` / `CAMERA_VFLIP` trong `config.py`.
 - **Pi 5**: nếu gpiozero lỗi, `sudo apt install python3-lgpio`.
