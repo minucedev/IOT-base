@@ -1,0 +1,113 @@
+"""Logic cảnh báo: màu overlay + 4 LED trạng thái + buzzer qua GPIO (gpiozero)."""
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass
+from typing import Dict, Optional
+
+import config
+
+log = logging.getLogger(__name__)
+
+# Màu BGR cho OpenCV
+COLOR_GOOD = (0, 200, 0)
+COLOR_BAD = (0, 0, 255)
+COLOR_NEUTRAL = (160, 160, 160)
+
+
+class _Led:
+    """Bọc gpiozero.LED; tự động no-op nếu không chạy trên Raspberry Pi."""
+
+    def __init__(self, pin: int, name: str) -> None:
+        self.name, self._led = name, None
+        try:
+            from gpiozero import LED
+            self._led = LED(pin)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("LED %s (GPIO%d) không khả dụng, chạy chế độ giả lập: %s", name, pin, exc)
+
+    def set(self, on: bool) -> None:
+        if self._led is not None:
+            self._led.on() if on else self._led.off()
+
+    def close(self) -> None:
+        if self._led is not None:
+            self._led.off()
+            self._led.close()
+
+
+class _Buzzer:
+    """Bọc gpiozero.Buzzer (buzzer active); kêu bíp ngắt quãng khi bật. No-op nếu không có GPIO."""
+
+    def __init__(self, pin: int) -> None:
+        self._bz, self._on = None, False
+        try:
+            from gpiozero import Buzzer
+            self._bz = Buzzer(pin)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Buzzer (GPIO%d) không khả dụng, chạy chế độ giả lập: %s", pin, exc)
+
+    def set(self, on: bool) -> None:
+        if self._bz is None or on == self._on:
+            return
+        self._on = on
+        if on:
+            self._bz.beep(on_time=config.BUZZER_ON_SEC, off_time=config.BUZZER_OFF_SEC,
+                          background=True)
+        else:
+            self._bz.off()
+
+    def close(self) -> None:
+        if self._bz is not None:
+            self._bz.off()
+            self._bz.close()
+
+
+@dataclass
+class AlertState:
+    status: str
+    is_alert: bool
+    color: tuple
+    leds: Dict[str, bool]
+    bad_seconds: float
+
+
+class AlertManager:
+    """Mỗi trạng thái (GOOD/SLOUCH/LEAN/HEAD_DOWN) một LED, sáng theo trạng thái hiện tại.
+    Buzzer kêu khi sai tư thế (bất kỳ loại nào) liên tục >= BAD_POSTURE_HOLD_SEC."""
+
+    def __init__(self) -> None:
+        self.leds = {status: _Led(pin, status) for status, pin in config.LED_PINS.items()}
+        self.buzzer = _Buzzer(config.BUZZER_PIN)
+        self._bad_since: Optional[float] = None
+
+    def update(self, status: str, now: Optional[float] = None) -> AlertState:
+        now = time.monotonic() if now is None else now
+        bad_seconds = 0.0
+
+        if status in config.BAD_STATUSES:
+            if self._bad_since is None:
+                self._bad_since = now
+            bad_seconds = now - self._bad_since
+        else:  # GOOD / NO_PERSON / UNKNOWN
+            self._bad_since = None
+        alerting = bad_seconds >= config.BAD_POSTURE_HOLD_SEC
+
+        led_states = {name: name == status for name in self.leds}
+        for name, led in self.leds.items():
+            led.set(led_states[name])
+        self.buzzer.set(alerting and config.BUZZER_ENABLED)
+
+        if status in config.BAD_STATUSES:
+            color = COLOR_BAD
+        elif status == config.STATUS_GOOD:
+            color = COLOR_GOOD
+        else:
+            color = COLOR_NEUTRAL
+        return AlertState(status, alerting, color, led_states, bad_seconds)
+
+    def close(self) -> None:
+        for led in self.leds.values():
+            led.close()
+        self.buzzer.close()

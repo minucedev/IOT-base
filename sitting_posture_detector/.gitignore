@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+*.onnx
+*.pt
+.venv/
+venv/
+*.jpg
+*.jpeg
+*.png
+*.log
+.vscode/
+.idea/
+!models/.gitkeep
