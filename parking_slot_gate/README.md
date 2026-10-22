@@ -71,6 +71,11 @@ python raspberry_parking_yolov8n_1280_speaker_jpg.py --once --scene trong   # c�
 python raspberry_parking_yolov8n_1280_speaker_jpg.py --once --scene day     # hết chỗ: ô C1–C9
 python raspberry_parking_yolov8n_1280_speaker_jpg.py --once --scene goc     # ảnh gốc 27 ô
 ```
+**Giao diện qua VNC:** mở terminal trong desktop VNC của Pi, chạy `python3 parking_gui.py`
+→ điền IP laptop loa, chọn ảnh, bấm "Bắt đầu" (hoặc "Quét thử 1 lần" để không dùng GPIO).
+
+Khi đang chạy thật (không `--once`): gõ `1`/`2`/`3` (hoặc `goc`/`trong`/`day`) + Enter để đổi ảnh, lượt xe kế tiếp dùng ảnh mới.
+
 `slots_check_left.jpg` / `slots_check_right.jpg`: ảnh vẽ khung ô để kiểm tra polygon.
 Bỏ `--once` để chạy thật với servo: ảnh trái → mở cổng, ảnh phải → "BAI DA DAY".
 

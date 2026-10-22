@@ -396,6 +396,12 @@ class ParkingDetector:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.allow_zero_vehicles = allow_zero_vehicles
 
+    def set_scene(self, image_path, slots_path):
+        """Đổi ảnh + slots khi đang chạy; lượt quét sau dùng ảnh mới."""
+        self.slots = load_slots(slots_path)
+        self.image_path = Path(image_path)
+        print(f"[ẢNH] Đã đổi sang {image_path} | [SLOTS] {slots_path}", flush=True)
+
     def detect(self):
         # OpenCV supports .jpg/.jpeg/.png. The FULL filename must be passed with --image.
         if not self.image_path.is_file():
@@ -703,6 +709,24 @@ def run_loop(detector, hw, notifier, sensor_debug=True,
     print(f"[CONFIG] Phát hiện xe <{entry_distance:g} cm; xác nhận rời >= "
           f"{exit_distance:g} cm liên tục {clear_seconds:g} giây.", flush=True)
     print("Đang chờ xe... Ctrl+C để dừng.", flush=True)
+    names = list(SCENES)
+    print("Đổi ảnh: gõ " + ", ".join(f"{i}={n}" for i, n in enumerate(names, 1))
+          + " rồi Enter.", flush=True)
+
+    def scene_keyboard():
+        while True:
+            try:
+                choice = input().strip()
+            except EOFError:
+                return  # chạy nền không có bàn phím
+            if choice.isdigit() and 1 <= int(choice) <= len(names):
+                choice = names[int(choice) - 1]
+            if choice in SCENES:
+                detector.set_scene(*SCENES[choice])
+            elif choice:
+                print(f"[ẢNH] Không hiểu '{choice}'", flush=True)
+
+    threading.Thread(target=scene_keyboard, daemon=True).start()
 
     try:
         while True:
@@ -828,6 +852,18 @@ def choose_scene():
     raise SystemExit(f"Lựa chọn không hợp lệ: {choice}")
 
 
+def ask_speaker_url():
+    """Hỏi IP laptop loa khi không truyền --speaker-url/--voice. Enter = không dùng loa."""
+    if not sys.stdin.isatty():
+        return ""
+    ip = input("IP laptop loa (vd 192.168.1.10, Enter = bỏ qua): ").strip()
+    if not ip:
+        return ""
+    if ip.startswith("http"):
+        return ip
+    return f"http://{ip if ':' in ip else ip + ':8765'}/speak"
+
+
 def main():
     parser = argparse.ArgumentParser(description="Raspberry Pi: 143 ô đỗ + YOLOv8n ONNX 1280")
     parser.add_argument("--scene", choices=list(SCENES),
@@ -864,6 +900,9 @@ def main():
     parser.add_argument("--allow-zero-vehicles", action="store_true",
                         help="Chỉ dành cho ảnh bãi trống thực sự; bỏ chặn 0 detection")
     args = parser.parse_args()
+    print("=== BÃI ĐỖ XE THÔNG MINH ===", flush=True)
+    if not args.speaker_url and not args.voice:
+        args.speaker_url = ask_speaker_url()
     notifier = AudioNotifier(speaker_url=args.speaker_url, local_voice=args.voice)
     if args.test_speaker:
         if not notifier.enabled:
@@ -878,7 +917,8 @@ def main():
         args.image, scene_slots = SCENES[scene]
         args.slots = args.slots or scene_slots
     args.slots = args.slots or "slots.json"
-    print(f"[ẢNH] {args.image}  |  [SLOTS] {args.slots}")
+    print(f"[ẢNH] {args.image}  |  [SLOTS] {args.slots}  |  "
+          f"[LOA] {args.speaker_url or ('Pi' if args.voice else 'tắt')}", flush=True)
 
     detector = ParkingDetector(args.image, args.slots, args.model,
                                args.confidence, args.imgsz, args.output,
