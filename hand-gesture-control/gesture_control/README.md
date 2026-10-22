@@ -1,6 +1,6 @@
 # Raspberry Pi + webcam USB + cử chỉ tay + LED/motor DC + Flask
 
-Chương trình dùng model MediaPipe Gesture Recognizer có sẵn, thư viện **RPi.GPIO**, một LED và một motor DC qua driver cầu H có IN1/IN2/ENA. Không cần thu dữ liệu hoặc huấn luyện lại.
+Chương trình dùng model MediaPipe Gesture Recognizer có sẵn (chạy bằng LiteRT), thư viện **RPi.GPIO**, một LED và một motor DC qua driver cầu H có IN1/IN2/ENA. Không cần thu dữ liệu hoặc huấn luyện lại.
 
 Đây là nhận diện **bốn nhóm cử chỉ để điều khiển thiết bị**. Model này không dịch câu thủ ngữ tiếng Việt.
 
@@ -96,11 +96,9 @@ getconf LONG_BIT
 python3 --version
 ```
 
-Bộ requirements nhắm tới **Pi 4, OS 64-bit (`aarch64`, `64`) và Python 3.10, 3.11 hoặc 3.12**. Python 3.11 là lựa chọn khởi đầu phù hợp. Python 3.13 trở lên và OS 32-bit không có bộ wheel MediaPipe 0.10.18 tương ứng trong hướng dẫn này.
+Bộ requirements nhắm tới **Pi 4, OS 64-bit (`aarch64`, `64`) và Python 3.10 đến 3.14** (đã tính cho Python 3.13). OS 32-bit (`armv7l`) không có wheel `ai-edge-litert`; cần cài OS 64-bit.
 
-Nếu bạn đang ở một môi trường ảo, có thể kiểm tra thêm `python --version` để biết phiên bản của môi trường đang kích hoạt. Một môi trường tạo bằng Python 3.13 vẫn dùng Python 3.13, dù sau đó bạn cài thêm Python 3.11.
-
-**Nếu hiện tại là Python 3.13.5 hoặc bất kỳ phiên bản nào ngoài nhóm 3.10/3.11/3.12, làm theo mục 5.2B:** dùng `uv` cài Python 3.11 riêng và tạo `.venv311`. Không cần gỡ Python hiện tại hoặc đổi Python hệ thống. Nếu OS là `armv7l`/32-bit, cài thêm Python không giải quyết được việc thiếu wheel ARM64; cần môi trường OS 64-bit phù hợp trước khi dùng bộ này.
+Chương trình **không dùng gói `mediapipe`**: `mediapipe` không có wheel Python 3.13 cho ARM64 ở bản cũ, còn bản >= 1.0 đòi tập lệnh AES mà Pi 4 không có (báo `Illegal instruction`). Thay vào đó `hand_pipeline.py` chạy trực tiếp các model TFLite trong `models/gesture_recognizer.task` bằng `ai-edge-litert`.
 
 ## 5. Chép và cài chương trình
 
@@ -121,13 +119,9 @@ sudo apt install -y curl python3-venv python3-pip python3-dev build-essential v4
 
 `build-essential` và `python3-dev` giúp build RPi.GPIO nếu pip dùng bản source. Nếu dùng Python 3.12 tự cài trong khi Python hệ thống là phiên bản khác, cần headers/dev của **đúng Python 3.12** từ cách cài Python đó.
 
-### 5.2. Chọn một cách tạo môi trường Python
+### 5.2. Tạo môi trường Python
 
-Chỉ chọn **A hoặc B**, rồi cùng tiếp tục mục **5.3**. Nếu Terminal đang kích hoạt môi trường cũ (có tiền tố như `(.venv)`), chạy `deactivate` trước khi chọn cách mới.
-
-#### 5.2A. Python hiện tại là 3.10, 3.11 hoặc 3.12
-
-Kiểm tra `python3 --version`. Nếu phiên bản phù hợp, tạo môi trường bằng Python đó:
+Nếu Terminal đang kích hoạt môi trường cũ (có tiền tố như `(.venv)`), chạy `deactivate` trước. Python hệ thống 3.13 dùng được trực tiếp, không cần cài thêm phiên bản khác:
 
 ```bash
 cd ~/IoT/rasp_gesture_led_dc
@@ -136,36 +130,7 @@ source .venv/bin/activate
 python --version
 ```
 
-Kết quả phải thuộc Python 3.10.x/3.11.x/3.12.x. Nếu `.venv` cũ đã tạo bằng phiên bản không phù hợp, không tái sử dụng môi trường đó; chọn cách **5.2B** để có một môi trường mới.
-
-#### 5.2B. Python hiện tại không phù hợp, ví dụ Python 3.13.5
-
-Cách này cài thêm **Python 3.11 riêng cho dự án** bằng công cụ `uv`. Các bước cần có kết nối Internet. Chạy trên Terminal của Pi, không cần dùng `sudo` cho lệnh cài `uv` hoặc tạo venv:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-"$HOME/.local/bin/uv" python install 3.11
-```
-
-Tạo một môi trường mới tên `.venv311` trong thư mục chương trình:
-
-```bash
-cd ~/IoT/rasp_gesture_led_dc
-"$HOME/.local/bin/uv" venv --python 3.11 --seed .venv311
-source .venv311/bin/activate
-python --version
-```
-
-**Kết quả phải hiện `Python 3.11.x`.** Tùy chọn `--seed` cài pip vào venv để dùng các lệnh `python -m pip` tiếp theo. Môi trường `.venv` cũ không bị xóa; dự án dùng `.venv311` mới. Không sao chép thư viện từ môi trường cũ sang môi trường mới.
-
-Nếu `python --version` vẫn hiện 3.13.5, kiểm tra bạn đã chạy đúng lệnh `source .venv311/bin/activate` trong thư mục dự án. Có thể kiểm tra interpreter trực tiếp bằng:
-
-```bash
-which python
-./.venv311/bin/python --version
-```
-
-Interpreter trực tiếp phải là Python 3.11.x; `which python` sau khi kích hoạt phải trỏ tới `.venv311/bin/python` của dự án.
+Kết quả phải thuộc Python 3.10 đến 3.14. Nếu `.venv` cũ đã tạo bằng phiên bản khác hoặc đã cài `mediapipe`, xóa `.venv` và tạo lại để tránh lẫn thư viện.
 
 ### 5.3. Cài requirements và kiểm tra
 
@@ -181,7 +146,7 @@ Không thêm `--only-binary=:all:` cho toàn bộ requirements, vì RPi.GPIO có
 Kiểm tra import; các lệnh này không mở webcam hay chạy nhận diện:
 
 ```bash
-python -c "import cv2, mediapipe, flask, RPi.GPIO as GPIO; print('Import OK'); print('MediaPipe:', mediapipe.__version__); print('RPi.GPIO:', GPIO.VERSION)"
+python -c "import cv2, ai_edge_litert, flask, RPi.GPIO as GPIO; print('Import OK'); print('OpenCV:', cv2.__version__); print('RPi.GPIO:', GPIO.VERSION)"
 python -m pip check
 python download_model.py
 ```
@@ -194,22 +159,13 @@ python download_model.py --force
 
 ### 5.4. Mỗi lần mở Terminal mới
 
-Nếu chọn **5.2A**, kích hoạt `.venv`:
-
 ```bash
 cd ~/IoT/rasp_gesture_led_dc
 source .venv/bin/activate
-```
-
-Nếu chọn **5.2B**, kích hoạt `.venv311`:
-
-```bash
-cd ~/IoT/rasp_gesture_led_dc
-source .venv311/bin/activate
 python --version
 ```
 
-**Với trường hợp Python hệ thống 3.13.5 của bạn, dùng `.venv311` cho mọi lần test và chạy app.** Các lệnh `python ...` ở phần tiếp theo sẽ dùng Python của môi trường đang được kích hoạt.
+Các lệnh `python ...` ở phần tiếp theo sẽ dùng Python của môi trường đang được kích hoạt.
 
 ## 6. Chọn đúng thiết bị webcam
 
@@ -287,15 +243,15 @@ python test_gpio.py --case gestures --seconds 3
 
 ## 8. Chạy chương trình Flask
 
-Sau khi test camera và GPIO thành công, với cách **5.2B** (Python 3.11 riêng):
+Sau khi test camera và GPIO thành công:
 
 ```bash
 cd ~/IoT/rasp_gesture_led_dc
-source .venv311/bin/activate
+source .venv/bin/activate
 CAMERA_INDEX=/dev/video0 python app.py
 ```
 
-Nếu bạn chọn cách **5.2A**, thay dòng kích hoạt bằng `source .venv/bin/activate`. Luôn kiểm tra `python --version` thuộc 3.10/3.11/3.12 trước khi chạy.
+Luôn kiểm tra `python --version` (3.10 đến 3.14) trước khi chạy.
 
 Giữ Terminal mở. Trên trình duyệt Pi vào:
 
@@ -418,31 +374,29 @@ vcgencmd get_throttled
 
 Nếu thấy `Undervoltage detected!`, kiểm tra nguồn/cáp Pi 4 (nguồn Pi 4 chính thức 5.1V/3A hoặc nguồn đáp ứng tương đương) và nguồn riêng cho motor. Sụt áp có thể làm camera/USB hoặc xử lý hoạt động thiếu ổn định. Dòng “LED ON”/“MOTOR FORWARD” chỉ là lệnh, không xác nhận phần cứng hoạt động.
 
-### Lỗi MediaPipe/API
+### Lỗi nhận diện/model
 
-Tham số đúng trong `app.py` là **`canned_gesture_classifier_options`**, không thêm chữ `s` vào `gesture`. Bộ mới đã dùng tên đúng. Kiểm tra đang chạy đúng thư mục mới và đúng venv:
+Nhận diện nằm trong `hand_pipeline.py` (chạy model TFLite bằng `ai-edge-litert`). Kiểm tra đang chạy đúng thư mục mới, đúng venv và import được thư viện:
 
 ```bash
 pwd
 which python
-python -c "import mediapipe as mp; print(mp.__version__)"
+python -c "import ai_edge_litert; print('LiteRT OK')"
 ```
 
 ### Lỗi cài đặt
 
-- `No matching distribution found for mediapipe==0.10.18`: kiểm tra lại OS 64-bit và `python --version` trong môi trường đang dùng. Nếu là Python 3.13+ hoặc ngoài nhóm 3.10/3.11/3.12, làm mục **5.2B**, kích hoạt `.venv311` rồi cài lại requirements trong môi trường mới.
+- `No matching distribution found for ai-edge-litert`: kiểm tra OS 64-bit (`uname -m` phải ra `aarch64`) và `python --version` từ 3.10 đến 3.14 trong môi trường đang dùng.
+- `Illegal instruction` / `compiled with aes enabled`: có cài nhầm gói `mediapipe` bản >= 1.0, gói này không chạy được trên Pi 4. Chạy `python -m pip uninstall -y mediapipe` rồi cài lại đúng `requirements.txt`.
 - Lỗi build RPi.GPIO: kiểm tra compiler và headers đúng phiên bản Python của venv; không chuyển sang gpiozero trong bộ này.
 - `Cannot determine SOC peripheral base address`: gửi đầy đủ traceback cùng model Pi, OS, Python và phiên bản RPi.GPIO; bộ này nhắm tới Pi 4.
-- Thiếu `cv2`/`flask` khi chạy: kích hoạt đúng `.venv` (5.2A) hoặc `.venv311` (5.2B), cài lại requirements trong chính môi trường đó.
+- Thiếu `cv2`/`flask`/`ai_edge_litert` khi chạy: kích hoạt đúng `.venv`, cài lại requirements trong chính môi trường đó.
 - Cổng 5000 đang dùng: dừng bản app cũ hoặc chạy `PORT=5001 CAMERA_INDEX=/dev/video0 python app.py` rồi mở cổng mới.
 
 ## 12. Nguồn chính thức
 
-- [MediaPipe Gesture Recognizer Python](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer/python)
-- [GestureRecognizerOptions và các nhãn có sẵn](https://ai.google.dev/edge/api/mediapipe/python/mp/tasks/vision/GestureRecognizerOptions)
-- [MediaPipe 0.10.18 trên PyPI](https://pypi.org/project/mediapipe/0.10.18/)
-- [uv: cài đặt công cụ](https://docs.astral.sh/uv/getting-started/installation/)
-- [uv: cài thêm phiên bản Python](https://docs.astral.sh/uv/guides/install-python/)
+- [MediaPipe Gesture Recognizer (nguồn của model)](https://ai.google.dev/edge/mediapipe/solutions/vision/gesture_recognizer/python)
+- [LiteRT (ai-edge-litert) trên PyPI](https://pypi.org/project/ai-edge-litert/)
 - [uv: môi trường ảo](https://docs.astral.sh/uv/pip/environments/)
 - [RPi.GPIO: BCM, setup, output, cleanup](https://sourceforge.net/p/raspberry-gpio-python/wiki/BasicUsage/)
 - [RPi.GPIO: PWM](https://sourceforge.net/p/raspberry-gpio-python/wiki/PWM/)

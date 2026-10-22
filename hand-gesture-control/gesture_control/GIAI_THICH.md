@@ -2,7 +2,7 @@
 
 ## 1. Hệ thống làm gì
 
-Dùng camera laptop nhìn bàn tay, Raspberry Pi nhận diện cử chỉ bằng MediaPipe và điều khiển đèn LED + quạt (motor DC).
+Dùng camera laptop nhìn bàn tay, Raspberry Pi nhận diện cử chỉ bằng model MediaPipe (chạy qua LiteRT) và điều khiển đèn LED + quạt (motor DC).
 
 | Cử chỉ | Tác dụng |
 |---|---|
@@ -21,7 +21,7 @@ camera --> laptop_cam_server   app.py
            (MJPEG :5000) ----> cv2.VideoCapture(URL)
                                   |
                                   v
-                          MediaPipe GestureRecognizer
+                          hand_pipeline.py (model MediaPipe qua LiteRT)
                                   |
                           gesture_logic.py  (chọn nhãn + giữ ổn định 0.4s)
                                   |

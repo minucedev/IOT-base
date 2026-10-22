@@ -1,4 +1,4 @@
-"""Raspberry Pi 4 + webcam USB + MediaPipe + RPi.GPIO + web Flask."""
+"""Raspberry Pi 4 + camera + model MediaPipe chạy qua LiteRT + RPi.GPIO + web Flask."""
 
 import atexit
 import logging
@@ -22,26 +22,6 @@ HAND_CONNECTIONS = (
     (5, 9), (9, 10), (10, 11), (11, 12), (9, 13), (13, 14), (14, 15),
     (15, 16), (13, 17), (0, 17), (17, 18), (18, 19), (19, 20),
 )
-
-
-def build_options(mp, model_path):
-    """Hàm riêng để kiểm tra API mà không khởi tạo/chạy model."""
-    return mp.tasks.vision.GestureRecognizerOptions(
-        base_options=mp.tasks.BaseOptions(
-            model_asset_path=str(model_path),
-            delegate=mp.tasks.BaseOptions.Delegate.CPU,
-        ),
-        running_mode=mp.tasks.vision.RunningMode.VIDEO,
-        num_hands=1,
-        min_hand_detection_confidence=0.5,
-        min_hand_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
-        # Không lọc bằng allowlist: lấy nhãn cao nhất toàn bộ model, rồi
-        # choose_gesture() bỏ các nhãn nằm ngoài bốn nhóm điều khiển.
-        canned_gesture_classifier_options=mp.tasks.components.processors.ClassifierOptions(
-            max_results=1
-        ),
-    )
 
 
 class GestureCamera:
@@ -138,7 +118,7 @@ class GestureCamera:
         try:
             # Import và mở phần cứng tại đây; import app.py không mở webcam/GPIO.
             import cv2
-            import mediapipe as mp
+            from hand_pipeline import GestureRecognizer
 
             if not self.model_path.is_file():
                 raise FileNotFoundError("Thiếu model. Chạy: python download_model.py")
@@ -156,9 +136,7 @@ class GestureCamera:
             camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
             camera.set(cv2.CAP_PROP_FPS, self.target_fps)
             camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-            recognizer = mp.tasks.vision.GestureRecognizer.create_from_options(build_options(mp, self.model_path))
-            epoch = time.monotonic()
-            previous_timestamp = -1
+            recognizer = GestureRecognizer(self.model_path)
             previous_publish = None
             fps = 0.0
             failures = 0
@@ -178,12 +156,7 @@ class GestureCamera:
                 frame = cv2.resize(frame, (self.width, self.height))
                 if self.mirror:
                     frame = cv2.flip(frame, 1)
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-                # VIDEO mode yêu cầu timestamp tăng nghiêm ngặt, đơn vị ms.
-                timestamp = max(previous_timestamp + 1, int((time.monotonic() - epoch) * 1000))
-                previous_timestamp = timestamp
-                recognition = recognizer.recognize_for_video(image, timestamp)
+                recognition = recognizer.recognize(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
                 if self.stop_event.is_set():
                     break
                 now = time.monotonic()
@@ -227,7 +200,7 @@ class GestureCamera:
                     self.condition.notify_all()
                 self.stop_event.wait(max(0, 1.0 / self.target_fps - (time.monotonic() - started)))
         except Exception as exc:
-            LOG.exception("Camera/MediaPipe đã ngừng xử lý")
+            LOG.exception("Camera/nhận diện đã ngừng xử lý")
             self._camera_error(str(exc))
         finally:
             try:

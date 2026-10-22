@@ -1,9 +1,11 @@
-# Raspberry Pi 4, Raspberry Pi OS 64-bit, Python 3.10 / 3.11 / 3.12.
+# Raspberry Pi 4, Raspberry Pi OS 64-bit, Python 3.13 (3.10 - 3.14 đều được).
 # RPi.GPIO có thể build từ source: cài build-essential và python3-dev trước.
-mediapipe==0.10.18
-opencv-contrib-python==4.10.0.84
-numpy==1.26.4
-jax==0.4.35
-jaxlib==0.4.35
+#
+# Không dùng gói mediapipe: bản <= 0.10.18 không có wheel cho Python 3.13, còn bản >= 1.0
+# (aarch64) build bắt buộc tập lệnh aes/lse/crc nên Pi 4 báo "compiled with aes enabled ...
+# Illegal instruction". hand_pipeline.py chạy trực tiếp các model TFLite bằng ai-edge-litert.
+ai-edge-litert>=2.0
+opencv-contrib-python>=4.11
+numpy>=2.1
 Flask==3.1.2
 RPi.GPIO==0.7.1; sys_platform == "linux"
