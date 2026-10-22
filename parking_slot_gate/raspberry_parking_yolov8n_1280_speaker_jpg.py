@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Raspberry Pi prototype: YOLOv8n ONNX 1280 + LCD, sensor, servo + laptop speaker.
+"""Raspberry Pi prototype: YOLOv8n ONNX 1280 + sensor, servo + laptop speaker.
 
 Works WITHOUT PyTorch or Ultralytics on the Pi. Export on Colab/laptop:
     YOLO("yolov8n.pt").export(format="onnx", imgsz=1280,
@@ -49,7 +49,6 @@ ECHO_GPIO = 24        # Physical 18 - MUST reduce HC-SR04 Echo 5 V -> 3.3 V
 SERVO_GPIO = 18       # Physical 12 - servo must use appropriate EXTERNAL 5 V
 RED_LED_GPIO = 27     # Physical 13 - current-limiting resistor required
 GREEN_LED_GPIO = 22   # Physical 15 - current-limiting resistor required
-LCD_I2C_ADDR = 0x27   # Sometimes 0x3F; check sudo i2cdetect -y 1
 
 ENTRY_DISTANCE_CM = 50.0
 EXIT_DISTANCE_CM = 65.0
@@ -543,19 +542,7 @@ class ParkingDetector:
                              suggested, count_vehicles)
 
 
-def lcd_lines(result):
-    if result.suggested is None:
-        if result.unknown:
-            return "KHONG XAC DINH", "XIN CHO KIEM TRA"
-        return "BAI DA DAY!", "XIN QUAY LAI"
-    slot = result.suggested
-    direction = "TRAI" if slot.row <= 2 else "THANG"
-    return (f"TRONG {len(result.empty)}/{result.total}"[:16],
-            f"O#{slot.id} {direction} D{slot.row}"[:16])
-
-
 def print_report(result):
-    line1, line2 = lcd_lines(result)
     print(f"\nONNX: {result.vehicle_count} xe | Tong: {result.total} o | "
           f"Trong: {len(result.empty)} | Co xe: {len(result.occupied)} | "
           f"Khong ro: {len(result.unknown)}")
@@ -563,18 +550,16 @@ def print_report(result):
         slot = result.suggested
         direction = "rẽ trái" if slot.row <= 2 else "đi thẳng"
         print(f"Goi y: o #{slot.id}, {direction}, day {slot.row}")
-    print(f"+----------------+\n|{line1:<16}|\n|{line2:<16}|\n+----------------+")
 
 
 class PiHardware:
-    def __init__(self, lcd_address):
+    def __init__(self):
         # Lazy GPIO import lets --once run without any Raspberry Pi hardware.
         from gpiozero import AngularServo, DistanceSensor, LED
         self.sensor = None
         self.servo = None
         self.red = None
         self.green = None
-        self.lcd = None
         try:
             self.red = LED(RED_LED_GPIO)
             self.green = LED(GREEN_LED_GPIO)
@@ -586,13 +571,6 @@ class PiHardware:
             self.sensor = DistanceSensor(trigger=TRIG_GPIO, echo=ECHO_GPIO,
                                          max_distance=2.0, queue_len=5)
             self.set_gate(False)
-            try:
-                from RPLCD.i2c import CharLCD
-                self.lcd = CharLCD("PCF8574", address=lcd_address, port=1,
-                                   cols=16, rows=2, auto_linebreaks=False)
-                self.display("CHO XE VAO", "HE THONG SAN SANG")
-            except Exception as exc:
-                print(f"[CANH BAO] LCD không kết nối: {exc}")
         except Exception:
             self.close()
             raise
@@ -614,28 +592,10 @@ class PiHardware:
             self.green.off()
             self.red.on()
 
-    def display(self, line1, line2):
-        print(f"LCD: [{line1[:16]}] [{line2[:16]}]")
-        if self.lcd is None:
-            return
-        try:
-            self.lcd.cursor_pos = (0, 0)
-            self.lcd.write_string(f"{line1:<16}"[:16])
-            self.lcd.cursor_pos = (1, 0)
-            self.lcd.write_string(f"{line2:<16}"[:16])
-        except Exception as exc:
-            print(f"[CANH BAO] LCD write: {exc}")
-
     def close(self):
         # Emergency interrupt: release PWM; don't order barrier to close blindly.
         if self.servo is not None:
             self.servo.detach()
-        if self.lcd is not None:
-            try:
-                self.lcd.clear()
-                self.lcd.close(clear=False)
-            except Exception:
-                pass
         for obj in (self.sensor, self.servo, self.red, self.green):
             if obj is not None:
                 obj.close()
@@ -772,7 +732,6 @@ def run_loop(detector, hw, notifier, sensor_debug=True,
                         print("[RESET] Hết thời gian xác nhận. "
                               "Đóng servo 0°, tắt LED xanh, bật LED đỏ.", flush=True)
                         hw.set_gate(False)
-                        hw.display("CHO XE VAO", "HE THONG SAN SANG")
                         state = "IDLE"
                         near_samples = 0
                         clear_since = None
@@ -802,7 +761,6 @@ def run_loop(detector, hw, notifier, sensor_debug=True,
                     near_samples = 0
                 if near_samples >= 2:
                     near_samples = 0
-                    hw.display("DANG QUET BAI XE", "VUI LONG DOI...")
                     print(f"[STATE] Phát hiện vật cách {d:.1f} cm. "
                           "Phân tích ảnh tĩnh...", flush=True)
                     try:
@@ -810,7 +768,6 @@ def run_loop(detector, hw, notifier, sensor_debug=True,
                     except Exception as exc:
                         print(f"[LOI] Nhận diện: {exc}", flush=True)
                         hw.set_gate(False)
-                        hw.display("LOI NHAN DIEN", "RAO DANG DONG")
                         notifier.notify("Hệ thống đang gặp lỗi nhận diện. Xin vui lòng chờ.")
                         state = "FULL"
                         clear_since = None
@@ -824,20 +781,17 @@ def run_loop(detector, hw, notifier, sensor_debug=True,
                     if (result.suggested is not None and
                             d_after is not None and d_after < exit_distance):
                         hw.set_gate(True)
-                        hw.display(*lcd_lines(result))
                         notifier.notify(guidance_message(result))
                         state = "OPEN"
                         print("[STATE] -> OPEN: servo 90°, LED xanh. "
                               f"Chờ khoảng cách >= {exit_distance:g} cm để đóng.", flush=True)
                     elif result.suggested is None:
                         hw.set_gate(False)
-                        hw.display(*lcd_lines(result))
                         notifier.notify(guidance_message(result))
                         state = "FULL"
                         print("[STATE] -> FULL: servo 0°, LED đỏ.", flush=True)
                     else:
                         hw.set_gate(False)
-                        hw.display("XE DA ROI", "CHO LUOT TIEP")
                         state = "FULL"
                         print("[STATE] -> FULL: vật không còn trước cảm biến; "
                               "không mở servo.", flush=True)
@@ -891,7 +845,6 @@ def main():
     parser.add_argument("--imgsz", type=int, default=640, help="Kích thước export ONNX (mặc định 640)")
     parser.add_argument("--threads", type=int, default=2, help="Số CPU threads của ONNX")
     parser.add_argument("--output", default="results", help="Thư mục xuất hình và CSV")
-    parser.add_argument("--lcd-address", type=lambda s: int(s, 0), default=LCD_I2C_ADDR)
     parser.add_argument("--voice", action="store_true", help="Dùng espeak-ng ngay trên Pi (không dùng laptop)")
     parser.add_argument("--speaker-url", default="",
                         help="Địa chỉ loa Ubuntu: http://IP_LAPTOP:8765/speak")
@@ -946,7 +899,7 @@ def main():
         parser.error("Cần 5 <= entry-distance < exit-distance < 200 cm.")
     if args.clear_seconds < 3.0:
         parser.error("--clear-seconds cần >= 3 giây cho mô hình thử nghiệm.")
-    hw = PiHardware(args.lcd_address)
+    hw = PiHardware()
     run_loop(detector, hw, notifier,
              sensor_debug=args.sensor_debug,
              entry_distance=args.entry_distance,
