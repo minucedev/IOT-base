@@ -1,0 +1,9 @@
+# Raspberry Pi 4, Raspberry Pi OS 64-bit, Python 3.10 / 3.11 / 3.12.
+# RPi.GPIO có thể build từ source: cài build-essential và python3-dev trước.
+mediapipe==0.10.18
+opencv-contrib-python==4.10.0.84
+numpy==1.26.4
+jax==0.4.35
+jaxlib==0.4.35
+Flask==3.1.2
+RPi.GPIO==0.7.1
