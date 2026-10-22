@@ -772,12 +772,7 @@ def run_loop(detector, hw, notifier, sensor_debug=True,
                     clear_since = None
 
             if sensor_debug:  # in khoảng cách mỗi lần đo
-                distance_text = "KHONG DOC DUOC" if d is None else f"{d:.1f} cm"
-                current_clear = (f"{now - clear_since:.1f}/{clear_seconds:g}s"
-                                 if clear_since is not None else "0s")
-                print(f"[SENSOR] state={state} | distance={distance_text} | "
-                      f"{reason} | clear={current_clear} | "
-                      f"near_samples={near_samples}", flush=True)
+                print("-- cm" if d is None else f"{d:.1f} cm", flush=True)
                 last_sensor_log = now
                 last_reason = reason
 

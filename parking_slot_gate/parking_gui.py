@@ -26,10 +26,13 @@ class QueueWriter:
     """Chuyển print() của core vào ô log của giao diện."""
     def __init__(self, q):
         self.q = q
+        self.buffer = ""
 
     def write(self, text):
-        if text:
-            self.q.put(text)
+        self.buffer += text
+        *lines, self.buffer = self.buffer.split("\n")
+        for line in lines:
+            self.q.put(line)
 
     def flush(self):
         pass
@@ -82,6 +85,8 @@ class App:
         tk.Button(buttons, text="Thoát", width=10, command=self.quit).pack(side="left")
         self.status = tk.Label(top, text="Chưa chạy", fg="gray", font=("Arial", 12, "bold"))
         self.status.grid(row=3, column=0, columnspan=4, sticky="w")
+        self.distance = tk.Label(top, text="Khoảng cách: -- cm", font=("Arial", 20, "bold"))
+        self.distance.grid(row=4, column=0, columnspan=4, sticky="w")
 
         self.preview = tk.Label(root)
         self.preview.pack(padx=10)
@@ -159,8 +164,16 @@ class App:
 
     def poll(self):
         while not self.logs.empty():
-            self.log.insert("end", self.logs.get())
-            self.log.see("end")
+            line = self.logs.get()
+            if line.endswith(" cm") and len(line) < 12:
+                # Dòng khoảng cách -> chỉ cập nhật nhãn, không ghi log.
+                self.distance.configure(text=f"Khoảng cách: {line}")
+            else:
+                self.log.insert("end", line + "\n")
+        # Giữ 300 dòng cuối, tránh ô log phình to làm giao diện đơ.
+        if int(self.log.index("end-1c").split(".")[0]) > 300:
+            self.log.delete("1.0", "end-300l")
+        self.log.see("end")
         # Có kết quả quét mới -> hiện ảnh đã đánh dấu ô.
         if RESULT_IMAGE.exists() and RESULT_IMAGE.stat().st_mtime != self.result_mtime:
             self.result_mtime = RESULT_IMAGE.stat().st_mtime
