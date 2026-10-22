@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
-"""Raspberry Pi prototype: YOLOv8n ONNX 1280 + sensor, servo + laptop speaker.
+"""Raspberry Pi prototype: YOLOv8n ONNX + sensor, servo + laptop speaker.
 
-Works WITHOUT PyTorch or Ultralytics on the Pi. Export on Colab/laptop:
-    YOLO("yolov8n.pt").export(format="onnx", imgsz=1280,
-                                  simplify=True, nms=False, half=False)
-Rename the exported file to yolov8n_1280.onnx and copy it next to this script.
+Works WITHOUT PyTorch or Ultralytics on the Pi. Default model is
+yolov8n_640.onnx (already next to this script, COCO 80 classes, input 640).
 
 Detect ONE static image, NO GPIO:
-    python raspberry_parking_yolov8n_1280.py --once
+    python raspberry_parking_yolov8n_1280_speaker_jpg.py --once --scene trong
 
 Run the Raspberry Pi GPIO demonstration:
-    python raspberry_parking_yolov8n_1280_speaker.py --speaker-url http://IP_LAPTOP:8765/speak
+    python raspberry_parking_yolov8n_1280_speaker_jpg.py --speaker-url http://IP_LAPTOP:8765/speak
 
-Requires ONNX YOLOv8 DETECTION model with COCO 80 classes, raw output
-[1, 84, 33600] for input [1, 3, 1280, 1280]. Do not supply a segmentation model.
+Requires an ONNX YOLOv8 DETECTION model (not segmentation). For another
+size, export with imgsz=N and pass --model FILE --imgsz N.
 
 LAB / DEMONSTRATION ONLY: one ultrasonic sensor cannot ensure a vehicle
 is clear of the barrier. Real gates require independent safety devices.
