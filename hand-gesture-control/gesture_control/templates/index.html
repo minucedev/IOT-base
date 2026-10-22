@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Điều khiển LED & DC bằng cử chỉ</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #edf3f5; color: #143440; font-family: system-ui, sans-serif; }
+    main { max-width: 1140px; margin: auto; padding: 38px 24px; }
+    .eyebrow { margin: 0 0 10px; color: #527783; font-size: 12px; font-weight: 700; letter-spacing: .12em; }
+    h1 { margin: 0 0 12px; font-size: clamp(24px, 4vw, 34px); letter-spacing: -.03em; }
+    .intro { margin: 0 0 26px; color: #58717a; line-height: 1.6; }
+    .layout { display: grid; grid-template-columns: 1.5fr 1fr; gap: 20px; align-items: start; }
+    .card { background: white; border: 1px solid #d9e5e9; border-radius: 18px; padding: 22px; }
+    .side { display: grid; gap: 20px; }
+    .card-heading { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 18px; }
+    h2 { margin: 0; font-size: 17px; }
+    .number { display: inline-grid; place-items: center; width: 25px; height: 25px; margin-right: 8px; border-radius: 8px; background: #e8f0f2; color: #54717b; font-size: 12px; }
+    .badge { padding: 5px 9px; border-radius: 20px; background: #ecf2f4; color: #637b84; font-size: 11px; white-space: nowrap; }
+    .badge.live { color: #07684f; background: #dbf3e7; }
+    .camera-box { position: relative; width: 100%; aspect-ratio: 4/3; overflow: hidden; background: #112b36; border-radius: 12px; }
+    #camera { display: block; width: 100%; height: 100%; object-fit: contain; }
+    #camera-placeholder { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; color: #d0e2e7; text-align: center; line-height: 1.6; }
+    [hidden] { display: none !important; }
+    .status { font-size: 13px; color: #627a84; line-height: 1.6; margin: 14px 0 0; }
+    label { display: block; margin-bottom: 10px; font-size: 13px; color: #5a737d; }
+    input { width: 100%; min-width: 0; border: 1px solid; border-radius: 10px; padding: 16px 13px; font-family: inherit; font-weight: 650; }
+    #recognition-result { background: #eef9f5; color: #11684f; border-color: #bddfd3; font-size: 22px; }
+    #control-command { background: #fff7e9; color: #895619; border-color: #edd9b5; font-size: 17px; }
+    .gesture-hint { line-height: 1.7; font-size: 13px; color: #617980; margin: 16px 0 0; }
+    #control-status { min-height: 40px; }
+    #error { color: #b23b34; white-space: pre-wrap; font-size: 13px; line-height: 1.5; margin: 12px 0 0; }
+    footer { font-size: 12px; color: #738991; margin-top: 22px; line-height: 1.6; }
+    @media (max-width: 850px) { .layout { grid-template-columns: 1fr; } main { padding: 25px 16px; } }
+    @media (max-width: 420px) { .card { padding: 16px; } #control-command { font-size: 15px; } }
+  </style>
+</head>
+<body>
+<main>
+  <p class="eyebrow">RASPBERRY PI · ĐIỀU KHIỂN BẰNG CỬ CHỈ</p>
+  <h1>Xòe tay mở khóa, ngón tay ra lệnh</h1>
+  <p class="intro">Đưa tay vào khung hình và giữ cử chỉ ổn định để điều khiển LED, động cơ DC.</p>
+  <div class="layout">
+    <!-- Component 1: khung camera trực tiếp -->
+    <section class="card" aria-labelledby="camera-title">
+      <div class="card-heading">
+        <h2 id="camera-title"><span class="number">01</span>Camera trực tiếp</h2>
+        <span id="camera-badge" class="badge">Đang kết nối</span>
+      </div>
+      <div class="camera-box">
+        <img id="camera" src="/video_feed" alt="Hình ảnh webcam Raspberry Pi" hidden>
+        <div id="camera-placeholder">Đang kết nối camera…</div>
+      </div>
+      <p id="camera-status" class="status">Đang chờ hình ảnh từ Raspberry Pi…</p>
+      <p id="error" role="alert"></p>
+    </section>
+    <div class="side">
+      <!-- Component 2: field kết quả nhận diện -->
+      <section class="card" aria-labelledby="gesture-title">
+        <div class="card-heading"><h2 id="gesture-title"><span class="number">02</span>Kết quả nhận diện</h2></div>
+        <label for="recognition-result">Cử chỉ tay hiện tại</label>
+        <input id="recognition-result" type="text" readonly value="Đang kết nối…">
+        <p class="gesture-hint">Xòe cả bàn tay: mở khóa (không làm gì) · Ngón trỏ: bật đèn · Ngón cái: tắt quạt · Còn lại: tắt hết</p>
+      </section>
+      <!-- Component 3: field lệnh/trạng thái điều khiển -->
+      <section class="card" aria-labelledby="control-title">
+        <div class="card-heading"><h2 id="control-title"><span class="number">03</span>Lệnh điều khiển</h2></div>
+        <label for="control-command">Trạng thái LED và động cơ DC</label>
+        <input id="control-command" type="text" readonly value="Đang kết nối…">
+        <p id="control-status" class="status">Đang chờ trạng thái từ Raspberry Pi…</p>
+      </section>
+    </div>
+  </div>
+  <footer>Trạng thái hiển thị là lệnh được gửi tới thiết bị. Quan sát phần cứng để xác nhận LED sáng và motor quay.</footer>
+</main>
+<script>
+  const camera = document.getElementById('camera');
+  const placeholder = document.getElementById('camera-placeholder');
+  const resultField = document.getElementById('recognition-result');
+  const commandField = document.getElementById('control-command');
+  const cameraStatus = document.getElementById('camera-status');
+  const badge = document.getElementById('camera-badge');
+  const controlStatus = document.getElementById('control-status');
+  const errorField = document.getElementById('error');
+  let streamFailed = false;
+  let streamLoaded = false;
+  camera.addEventListener('load', () => { streamFailed = false; streamLoaded = true; });
+  camera.addEventListener('error', () => { streamFailed = true; streamLoaded = false; });
+
+  async function updateState() {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2500);
+    try {
+      const response = await fetch('/api/state', { cache: 'no-store', signal: controller.signal });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = await response.json();
+      resultField.value = data.result;
+      commandField.value = data.outputs.command;
+      camera.hidden = !data.camera_ok || !streamLoaded;
+      placeholder.hidden = data.camera_ok && streamLoaded;
+      placeholder.textContent = data.camera_ok ? 'Đang tải hình ảnh…' : data.result;
+      badge.textContent = data.camera_ok ? 'Trực tuyến' : 'Chưa sẵn sàng';
+      badge.classList.toggle('live', data.camera_ok);
+      cameraStatus.textContent = data.camera_ok ? `Camera đang hoạt động · ${data.fps} FPS` : 'Kiểm tra camera và chương trình trên Pi.';
+      errorField.textContent = data.error || '';
+      const reason = data.outputs.reason;
+      controlStatus.textContent = reason === 'gesture_timeout' ? 'Đã tắt: quá lâu không có cử chỉ hợp lệ.'
+        : reason === 'camera_timeout' || reason === 'camera_error' || reason === 'camera_stopped' ? 'Đã tắt đầu ra do camera hoặc nhận diện ngừng hoạt động.'
+        : reason === 'shutdown' ? 'Chương trình đã dừng, đầu ra đã tắt.'
+        : !data.outputs.armed ? 'Đang khóa: xòe cả bàn tay để mở điều khiển.'
+        : 'Đã mở khóa điều khiển.';
+      if (data.camera_ok && streamFailed) {
+        streamFailed = false;
+        camera.src = '/video_feed?t=' + Date.now();
+      }
+    } catch (error) {
+      resultField.value = 'Mất kết nối server';
+      commandField.value = 'Chưa xác định';
+      camera.hidden = true;
+      placeholder.hidden = false;
+      placeholder.textContent = 'Không nhận được dữ liệu từ Raspberry Pi';
+      badge.textContent = 'Mất kết nối';
+      badge.classList.remove('live');
+      cameraStatus.textContent = 'Kiểm tra chương trình và kết nối mạng.';
+      controlStatus.textContent = 'Không có trạng thái mới từ Pi.';
+      errorField.textContent = '';
+    } finally {
+      clearTimeout(timeout);
+      setTimeout(updateState, 350);  // Không tạo nhiều fetch chồng nhau.
+    }
+  }
+  updateState();
+</script>
+</body>
+</html>
