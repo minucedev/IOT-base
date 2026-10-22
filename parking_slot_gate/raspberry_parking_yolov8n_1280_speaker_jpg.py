@@ -50,7 +50,7 @@ GREEN_LED_GPIO = 22   # Physical 15 - current-limiting resistor required
 
 ENTRY_DISTANCE_CM = 50.0
 EXIT_DISTANCE_CM = 65.0
-CLEAR_CONFIRM_SECONDS = 3.0
+CLEAR_CONFIRM_SECONDS = 1.0
 POLL_SECONDS = 0.25
 
 MIN_SLOT_COVERAGE = 0.10
@@ -560,6 +560,7 @@ class PiHardware:
     def __init__(self):
         # Lazy GPIO import lets --once run without any Raspberry Pi hardware.
         from gpiozero import AngularServo, DistanceSensor, LED
+        self.detach_timer = None
         self.sensor = None
         self.servo = None
         self.red = None
@@ -589,6 +590,11 @@ class PiHardware:
 
     def set_gate(self, open_gate):
         self.servo.angle = 90 if open_gate else 0
+        # Quay xong thì ngắt xung để servo không bị giật (PWM mềm không ổn định).
+        if self.detach_timer is not None:
+            self.detach_timer.cancel()
+        self.detach_timer = threading.Timer(0.6, self.servo.detach)
+        self.detach_timer.start()
         if open_gate:
             self.red.off()
             self.green.on()
@@ -765,8 +771,7 @@ def run_loop(detector, hw, notifier, sensor_debug=True,
                               "hủy đếm, phải đủ liên tục mới được đóng.", flush=True)
                     clear_since = None
 
-            if sensor_debug and (now - last_sensor_log >= 1.0 or
-                                 (state in ("OPEN", "FULL") and reason != last_reason)):
+            if sensor_debug:  # in khoảng cách mỗi lần đo
                 distance_text = "KHONG DOC DUOC" if d is None else f"{d:.1f} cm"
                 current_clear = (f"{now - clear_since:.1f}/{clear_seconds:g}s"
                                  if clear_since is not None else "0s")
@@ -893,7 +898,7 @@ def main():
     parser.add_argument("--exit-distance", type=float, default=EXIT_DISTANCE_CM,
                         help="Xác nhận vật đã xa khi >= ngưỡng này (cm), mặc định 65")
     parser.add_argument("--clear-seconds", type=float, default=CLEAR_CONFIRM_SECONDS,
-                        help="Thời gian liên tục >= exit-distance để reset (mặc định 3s)")
+                        help="Thời gian liên tục >= exit-distance để reset (mặc định 1s)")
     parser.add_argument("--color-threshold", type=float, default=COLOR_OCCUPIED_FRACTION,
                         help="Ô có >= tỉ lệ pixel màu xe này thì coi là có xe (0 = tắt)")
     parser.add_argument("--once", action="store_true", help="Chạy nhận diện MỘT LẦN, không GPIO")
@@ -935,11 +940,11 @@ def main():
         return
     if not 5 <= args.entry_distance < args.exit_distance < 200:
         parser.error("Cần 5 <= entry-distance < exit-distance < 200 cm.")
-    if args.clear_seconds < 3.0:
-        parser.error("--clear-seconds cần >= 3 giây cho mô hình thử nghiệm.")
+    if args.clear_seconds < 0.5:
+        parser.error("--clear-seconds cần >= 0.5 giây.")
     hw = PiHardware()
     run_loop(detector, hw, notifier,
-             sensor_debug=args.sensor_debug,
+             sensor_debug=True,
              entry_distance=args.entry_distance,
              exit_distance=args.exit_distance,
              clear_seconds=args.clear_seconds)

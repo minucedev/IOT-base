@@ -150,7 +150,7 @@ class App:
                 detector = self.get_detector()
                 self.hw = core.PiHardware()
                 core.run_loop(detector, self.hw, core.AudioNotifier(speaker_url=url),
-                              sensor_debug=False)
+                              sensor_debug=True)
             except Exception as exc:
                 print(f"[LOI] {exc}")
                 self.root.after(0, lambda: self.status.configure(
