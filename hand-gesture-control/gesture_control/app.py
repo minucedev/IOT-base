@@ -14,6 +14,8 @@ from gesture_logic import GESTURE_NAMES, StableGesture, choose_gesture
 from gpio_outputs import GPIOOutputs, env_number
 
 ROOT = Path(__file__).resolve().parent
+# Đổi thành IP laptop đang chạy laptop_cam_server.py (hoặc đặt biến môi trường CAMERA_URL).
+CAMERA_URL = "http://10.93.29.44:5000/video_feed"
 LOG = logging.getLogger(__name__)
 HAND_CONNECTIONS = (
     (0, 1), (1, 2), (2, 3), (3, 4), (0, 5), (5, 6), (6, 7), (7, 8),
@@ -44,7 +46,9 @@ def build_options(mp, model_path):
 
 class GestureCamera:
     def __init__(self, outputs=None):
-        self.source = os.getenv("CAMERA_INDEX", "/dev/video0")
+        # Như các bài khác trong repo: laptop chạy laptop_cam_server.py, Pi đọc stream.
+        # CAMERA_INDEX (nếu đặt) vẫn dùng được cho webcam cắm trực tiếp / camera local.
+        self.source = os.getenv("CAMERA_INDEX") or os.getenv("CAMERA_URL", CAMERA_URL)
         self.width = int(os.getenv("FRAME_WIDTH", "640"))
         self.height = int(os.getenv("FRAME_HEIGHT", "480"))
         if not 160 <= self.width <= 1920 or not 120 <= self.height <= 1080:
@@ -140,10 +144,13 @@ class GestureCamera:
                 raise FileNotFoundError("Thiếu model. Chạy: python download_model.py")
             cv2.setNumThreads(2)
             source = int(self.source) if self.source.isdecimal() else self.source
-            backend = cv2.CAP_V4L2 if platform.system() == "Linux" else cv2.CAP_ANY
+            if isinstance(source, str) and source.startswith(("http://", "https://", "rtsp://")):
+                backend = cv2.CAP_ANY  # Stream MJPEG từ laptop
+            else:
+                backend = {"Linux": cv2.CAP_V4L2, "Windows": cv2.CAP_DSHOW}.get(platform.system(), cv2.CAP_ANY)
             camera = cv2.VideoCapture(source, backend)
             if not camera.isOpened():
-                raise RuntimeError(f"Không mở được webcam {self.source}. Kiểm tra thiết bị và quyền video.")
+                raise RuntimeError(f"Không mở được camera {self.source}. Đã chạy laptop_cam_server.py trên laptop và đúng IP chưa?")
             camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
             camera.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
             camera.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)

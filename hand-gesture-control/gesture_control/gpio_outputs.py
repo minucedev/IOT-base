@@ -21,6 +21,46 @@ def env_number(name, default, low, high):
     return value
 
 
+class FakeGPIO:
+    """Thay RPi.GPIO khi chạy trên laptop; chỉ nhớ mức chân."""
+
+    BCM, OUT, LOW, HIGH = "BCM", "OUT", 0, 1
+
+    class PWM:
+        def __init__(self, pin, freq):
+            pass
+
+        def start(self, duty):
+            pass
+
+        def ChangeDutyCycle(self, duty):
+            pass
+
+        def stop(self):
+            pass
+
+    def __init__(self):
+        self.levels = {}
+
+    def setwarnings(self, flag):
+        pass
+
+    def setmode(self, mode):
+        pass
+
+    def setup(self, pin, mode, initial=0):
+        self.levels[pin] = initial
+
+    def output(self, pin, level):
+        self.levels[pin] = level
+
+    def input(self, pin):
+        return self.levels.get(pin, 0)
+
+    def cleanup(self, pins=None):
+        pass
+
+
 class GPIOOutputs:
     """Lưu lệnh đang phát, không suy ra motor thực tế có quay hay không.
 
@@ -36,11 +76,10 @@ class GPIOOutputs:
         if gpio_module is None:
             try:
                 import RPi.GPIO as gpio_module
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Chưa có RPi.GPIO. Kích hoạt .venv rồi chạy: "
-                    "python -m pip install -r requirements.txt"
-                ) from exc
+            except ImportError:
+                # Chạy trên laptop: không có GPIO thật, chỉ mô phỏng trạng thái.
+                LOG.warning("Không có RPi.GPIO: chạy chế độ mô phỏng (không điều khiển phần cứng).")
+                gpio_module = FakeGPIO()
         self.gpio = gpio_module
         self.lock = threading.RLock()
         self.closed = False

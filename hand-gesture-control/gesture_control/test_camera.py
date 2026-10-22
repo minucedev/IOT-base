@@ -8,14 +8,17 @@ from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--camera", default=os.getenv("CAMERA_INDEX", "/dev/video0"))
+    parser.add_argument("--camera", default=os.getenv("CAMERA_INDEX") or os.getenv("CAMERA_URL", "http://10.93.29.44:5000/video_feed"))
     parser.add_argument("--output", default="camera_test.jpg")
     parser.add_argument("--preview", action="store_true", help="Mở cửa sổ trên desktop/VNC, nhấn q để thoát")
     args = parser.parse_args()
     import cv2
 
     source = int(args.camera) if args.camera.isdecimal() else args.camera
-    backend = cv2.CAP_V4L2 if platform.system() == "Linux" else cv2.CAP_ANY
+    if args.camera.startswith(("http://", "https://", "rtsp://")):
+        backend = cv2.CAP_ANY
+    else:
+        backend = {"Linux": cv2.CAP_V4L2, "Windows": cv2.CAP_DSHOW}.get(platform.system(), cv2.CAP_ANY)
     camera = cv2.VideoCapture(source, backend)
     try:
         if not camera.isOpened():
